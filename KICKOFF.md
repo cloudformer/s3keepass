@@ -1,78 +1,84 @@
 # s3keepass — kickoff brief
 
 Read this together with CLAUDE.md. CLAUDE.md is the series template, written for infra-serverless projects (an AWS
-service rebuilt behind its standard client); s3keepass is Frank's own password manager, so the differences below
-override it where they conflict. Delete this file once its content lives in CLAUDE.md / README.
+service rebuilt behind its standard client); s3keepass is **app-serverless** (KeePass — a desktop app and its
+file — as a serverless web vault), so the differences below override CLAUDE.md where they conflict. Delete this
+file once its content lives in CLAUDE.md / README.
 
-## What it is (evaluated with Frank on 2026-10-28, in the s3rds session)
+## What it is
 
-A KeePass password vault on S3 with a command line. The vault is one standard **KeePass file (`.kdbx`, KDBX4)**
-in a versioned S3 bucket. It is only ever decrypted in memory on Frank's machine; S3 never holds plaintext.
-Because it is a standard KeePass file, KeePassXC and mobile KeePass apps open the same file — that covers what a
-command line cannot (browser autofill, phone).
+KeePass vaults on S3, opened in a **web UI** served by a Lambda Function URL, ≈ $0 when idle. Each vault is one
+standard **KeePass file (`.kdbx`, KDBX4)**, so KeePassXC and mobile KeePass apps can still open the same file
+(download it from the UI). Part of the series (Frank, 2026-10-29), and Frank's own daily password manager.
 
 ```
-laptop: s3keepass CLI (AWS profile)
-  ├─ download s3://<bucket>/vault.kdbx (encrypted)
-  ├─ unlock in memory: master password + key file
-  └─ save: re-encrypt, conditional PUT (If-Match ETag, as s3rds does) — two devices never overwrite each other
-S3: versioning on — every save is a version; history / restore come from it
+browser: s3keepass web UI (HTTP Basic, like s3rds' console)
+  └─ Function URL → Lambda
+        ├─ list  s3://<bucket>/keepass/*.kdbx          (the "folder")
+        ├─ get   s3://<bucket>/keepass/<vault>.kdbx    (encrypted bytes)
+        └─ put   … with If-Match ETag                  (two tabs / devices never overwrite each other)
+S3: one bucket, prefix keepass/, any number of vaults; versioning on; SSE-KMS at rest
 ```
 
-## Decisions already made
+## Decisions (Frank, 2026-10-29)
 
-- **Name s3keepass**; pip package = import name = command `s3keepass`. PyPI and github.com/cloudformer/s3keepass
-  were free on 2026-10-29. Reserve on PyPI with
-  `python3 ~/repo-private/redefine-aws-serverless-workflow/scripts/reserve_pypi.py s3keepass --upload` when Frank decides.
-- **Command line in the cobra style** (`s3keepass <resource> <action>`), built with argparse sub-parsers, installed
-  by `[project.scripts]` in client/pyproject.toml:
-  ```
-  s3keepass configure                       # aws_profile, region, bucket, key mode
-  s3keepass vault init                      # new vault.kdbx, upload
-  s3keepass entry add github                # interactive, never in shell history
-  s3keepass entry get github                # to the clipboard, cleared after 30 s (pbcopy / clip / xclip, wl-copy)
-  s3keepass entry get github --field username
-  s3keepass entry ls [group]
-  s3keepass entry edit github · entry rm github
-  s3keepass gen 24                          # random password
-  s3keepass vault history · vault restore <version>   # S3 versions
-  s3keepass vault pull                      # download the encrypted file, open it in KeePassXC
-  ```
-- **Dependencies: pykeepass + boto3.** KDBX4 needs AES / ChaCha20 and Argon2; cryptography is never written by
-  hand, so the "standard library only" rule does not apply here.
-- **Key modes, both supported, default A:**
+- **In the series**, app-serverless (next to lambdavault and lambdachecks). Name s3keepass = pip package = import
+  name; PyPI and github.com/cloudformer/s3keepass were free on 2026-10-29 (reserve with
+  `python3 ~/repo-private/redefine-aws-serverless-workflow/scripts/reserve_pypi.py s3keepass --upload` when Frank says).
+- **Many vaults, no limit**: one bucket, `keepass/<name>.kdbx` (库1, 库2, 库3 …). The UI lists them like a folder
+  and opens one — the same idea as s3rds' console choosing a database (one S3 key = one database there, one S3
+  key = one vault here).
+- **The web UI is required in 0.1.0** and must feel like opening a folder on the desktop — convenient and
+  professional (model: KeePassXC's window): vault list → unlock with the master password → group tree on the
+  left, entries on the right → entry details; copy username / password (clipboard cleared after 30 s), reveal,
+  add / edit / delete entries and groups, password generator, create a new vault, download the `.kdbx`,
+  upload an existing `.kdbx`, lock (also on idle). One `index.html`, no build step, as CLAUDE.md principle 6.
+- **No key file in 0.1.0**: a vault is unlocked by its master password only. Encryption at rest beyond KDBX's
+  own is S3 server-side encryption with KMS (SSE-KMS on the bucket, AWS-managed key `aws/s3`).
 
-  | | A: key file local (default) | B: key file in AWS |
-  |---|---|---|
-  | unlock | master password + `~/.s3keepass/vault.keyx` | master password + key file kept in Parameter Store `SecureString` (KMS), read with IAM |
-  | can AWS see passwords | no — S3 holds ciphertext only | an account admin could get the key file, still not the master password |
-  | new machine | copy the key file | configure the AWS profile |
-  | cost | S3 storage only | `aws/ssm` key free; a customer KMS key $1 / month |
+## Settled with Frank (2026-10-29)
 
-## Infrastructure (Terraform, `terraform -chdir=terraform …`)
+**Goal of 0.1.0: it replaces Frank's local KeePass client and where the file is kept.** He opens the URL instead
+of KeePassXC, and the vaults live in S3 instead of on his disk.
 
-- S3 bucket: versioning on, block all public access, SSE (S3-managed or KMS), a lifecycle rule for old versions
-  (keep N or N days — ask Frank), deny non-TLS.
-- Mode B only: the SSM parameter and, optionally, a customer KMS key.
-- IAM: a policy for the CLI's user / role, least privilege on this bucket (and the parameter in mode B).
-- The template's `src/server/` Lambda console: **open question for Frank** — no Lambda is needed for the CLI.
-  Ask whether he wants a web page at all (it would need to unlock the vault in the browser or on the server; the
-  latter breaks "plaintext only on the laptop"). Default: no Lambda in 0.1.0.
-- Frank's var file name: ask him (for s3rds it is `real-srds.json`; never assume `my.json`).
+1. **A vault is decrypted in the browser.** The Lambda only lists / reads / writes encrypted bytes; the master
+   password and plaintext never leave the browser (as KeeWeb does). KDBX4 in JavaScript (Argon2 + ChaCha20 /
+   AES): vendor a vetted library (kdbxweb, MIT, used by KeeWeb, plus an Argon2 WASM build) next to / inline in
+   index.html — never hand-written crypto. Pin and record the vendored versions.
+2. **UI login: HTTP Basic**, user name and password from the Terraform variable file, as s3rds' console. The var
+   file is named after the project: **`terraform/s3keepass.json`** (gitignored; `example.json` committed) —
+   `terraform -chdir=/Users/frankzhang/repo-private/s3keepass/terraform apply -var-file=s3keepass.json`.
+3. **SSE-KMS with the AWS-managed key `aws/s3`** (free). A customer key may come later.
+4. **Command line in 0.2.0** (`s3keepass entry get github` …, designed 2026-10-28). 0.1.0 is the web UI only.
+
+## 0.1.0 deliverables
+
+1. Terraform (`terraform -chdir=terraform …`): S3 bucket (versioning, block public access, SSE-KMS, deny
+   non-TLS, lifecycle for old versions — ask how many to keep), Lambda + Function URL, IAM least privilege
+   (s3:ListBucket on `keepass/`, Get / Put on `keepass/*`). Variables: UI user / password (sensitive), bucket
+   name, region, architecture; the var file is `terraform/s3keepass.json`.
+2. `src/server/`: the Lambda (list / get / conditional put / delete / versions of `keepass/*.kdbx`, HTTP Basic)
+   and `index.html` (the UI above).
+3. README / README.zh.md: architecture image on top, then the "switch" table (left: KeePassXC + a synced file /
+   a hosted password manager; right: s3keepass — open the URL), then "the server: deploy once, ≈ $0 when idle".
+4. SERIES.md row (app-serverless) is already added in the template repo.
 
 ## Testing (the project's own method, CLAUDE.md principle 5)
 
-The reference is **KeePassXC's own `keepassxc-cli`, in Docker**: every file s3keepass writes must open in
-keepassxc-cli with the same entries, and every file keepassxc-cli creates must open in s3keepass. "KeePass
-compatible" is then a tested result. Plus moto (or the fake S3 pattern from s3rds tests/conftest.py) for the S3
-side: conditional PUT conflicts, versions, restore. REPORT.md / TASKS.md as in the template.
+The reference is **KeePassXC's `keepassxc-cli`, in Docker**: every file s3keepass writes must open in
+keepassxc-cli with the same groups and entries, and every file keepassxc-cli creates must open in s3keepass
+(drive the UI's crypto path headlessly, or the same library from Node in the test). Plus the fake S3 pattern from
+s3rds tests/conftest.py for the server: listing, conditional PUT conflicts, versions. REPORT.md / TASKS.md as in
+the template.
 
-## Open questions to settle with Frank before building
+## Acceptance of 0.1.0 (Frank runs every command)
 
-1. Series or personal tool? (2026-10-28: proposed as a personal tool, outside SERIES.md — not confirmed.)
-2. Default mode A — confirm. Mode B in 0.1.0 or later?
-3. Lambda / web page: none in 0.1.0? (see above)
-4. Several vaults (personal / team) = several S3 keys in one bucket, like s3rds' one key = one database?
+1. `terraform apply` → the UI opens at the Function URL (Basic auth).
+2. Create vault 库1, add entries in groups, lock, reopen → same content. Create 库2: both listed.
+3. Download 库1.kdbx → KeePassXC opens it with the master password. Upload a KeePassXC-made `.kdbx` → it opens
+   in the UI.
+4. Two tabs edit the same vault → the second save is refused (ETag), never silently overwritten.
+5. S3 console: `keepass/` holds only `.kdbx` ciphertext, SSE-KMS shown on each object.
 
 ## Working rules (from CLAUDE.md, repeated because they matter most)
 

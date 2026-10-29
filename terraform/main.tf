@@ -1,12 +1,85 @@
+data "aws_caller_identity" "me" {}
+
 locals {
-  role = "${var.name}-lambda-role"
+  role   = "${var.name}-lambda-role"
+  prefix = "keepass/" # fixed layout: s3://<bucket>/keepass/<vault>.kdbx
+  bucket = var.bucket != "" ? var.bucket : "${var.name}-${var.env}-${data.aws_caller_identity.me.account_id}"
 }
 
-# ---------------- the project's AWS primitive(s) go here ----------------
-# e.g. aws_s3_bucket, aws_dynamodb_table, aws_sqs_queue ... and the IAM statements that allow the
-# Lambda to use them (add to the policy below).
+# ---------------- S3: every vault is one .kdbx under keepass/ in this private bucket ----------------
+resource "aws_s3_bucket" "vaults" {
+  bucket        = local.bucket
+  force_destroy = var.force_destroy # false: destroy stops at a non-empty bucket, so no vault is lost by accident
+}
 
-# ---------------- IAM: one role, least privilege ----------------
+resource "aws_s3_bucket_public_access_block" "vaults" {
+  bucket                  = aws_s3_bucket.vaults.id
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+}
+
+# every save is a new object version: an older vault is one click away in the UI (Versions)
+resource "aws_s3_bucket_versioning" "vaults" {
+  bucket = aws_s3_bucket.vaults.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
+# at rest: SSE-KMS with the AWS-managed key aws/s3 (free; its key policy lets this account's S3 use it,
+# so the Lambda role needs no kms: permission). The vaults are KDBX-encrypted before they get here.
+resource "aws_s3_bucket_server_side_encryption_configuration" "vaults" {
+  bucket = aws_s3_bucket.vaults.id
+  rule {
+    apply_server_side_encryption_by_default {
+      sse_algorithm = "aws:kms"
+    }
+    bucket_key_enabled = true
+  }
+}
+
+resource "aws_s3_bucket_policy" "vaults" {
+  bucket     = aws_s3_bucket.vaults.id
+  depends_on = [aws_s3_bucket_public_access_block.vaults]
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Sid       = "DenyInsecureTransport"
+      Effect    = "Deny"
+      Principal = "*"
+      Action    = "s3:*"
+      Resource  = [aws_s3_bucket.vaults.arn, "${aws_s3_bucket.vaults.arn}/*"]
+      Condition = { Bool = { "aws:SecureTransport" = "false" } }
+    }]
+  })
+}
+
+# old versions: keep the newest var.keep_versions per vault (older ones go after a day); clean up the rest
+resource "aws_s3_bucket_lifecycle_configuration" "vaults" {
+  bucket     = aws_s3_bucket.vaults.id
+  depends_on = [aws_s3_bucket_versioning.vaults]
+  rule {
+    id     = "keep-newest-versions"
+    status = "Enabled"
+    filter {
+      prefix = local.prefix
+    }
+    noncurrent_version_expiration {
+      noncurrent_days           = 1
+      newer_noncurrent_versions = var.keep_versions
+    }
+    expiration {
+      expired_object_delete_marker = true
+    }
+    abort_incomplete_multipart_upload {
+      days_after_initiation = 1
+    }
+  }
+}
+
+# ---------------- IAM: one role, least privilege — only keepass/*.kdbx ----------------
 resource "aws_iam_role" "lambda" {
   name = local.role
   assume_role_policy = jsonencode({
@@ -30,12 +103,22 @@ resource "aws_iam_role_policy" "lambda" {
         Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
         Resource = "arn:aws:logs:*:*:*"
       },
-      # { Effect = "Allow", Action = ["dynamodb:GetItem", ...], Resource = aws_dynamodb_table.x.arn },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.vaults.arn}/${local.prefix}*.kdbx"
+      },
+      {
+        Effect    = "Allow"
+        Action    = ["s3:ListBucket", "s3:ListBucketVersions"]
+        Resource  = aws_s3_bucket.vaults.arn
+        Condition = { StringLike = { "s3:prefix" = ["${local.prefix}*"] } }
+      }
     ]
   })
 }
 
-# ---------------- the service: one Lambda + Function URL (console + API) ----------------
+# ---------------- the service: one Lambda + Function URL (web UI + API) ----------------
 data "archive_file" "server" {
   type        = "zip"
   source_dir  = "${path.module}/../src/server"
@@ -59,21 +142,18 @@ resource "aws_lambda_function" "server" {
       USER_NAME = var.user
       PASSWORD  = var.password
       CONSOLE   = var.console ? "1" : "0"
+      BUCKET    = aws_s3_bucket.vaults.bucket
     }
   }
 }
 
-# endpoint_auth = NONE:    public URL, our user/password is the only gate. A public URL
-#                          needs BOTH permission statements (AWS requirement since Oct 2025).
+# endpoint_auth = NONE:    public URL, our user/password is the only gate (the vaults stay KDBX-encrypted).
+#                          A public URL needs BOTH permission statements (AWS requirement since Oct 2025).
 # endpoint_auth = AWS_IAM: AWS verifies SigV4 + IAM first; no public permissions are created.
+# No CORS: the UI is served by the same URL, and no other site needs to call it.
 resource "aws_lambda_function_url" "server" {
   function_name      = aws_lambda_function.server.function_name
   authorization_type = var.endpoint_auth
-  cors {
-    allow_origins = ["*"]
-    allow_methods = ["*"]
-    allow_headers = ["content-type", "authorization"]
-  }
 }
 
 resource "aws_lambda_permission" "url" {

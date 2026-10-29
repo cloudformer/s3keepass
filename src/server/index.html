@@ -3,286 +3,1018 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>&lt;project&gt; console</title>
+<meta name="referrer" content="no-referrer">
+<title>s3keepass</title>
 <style>
-/* 风格参考 Automation_Delivery_EaC 的 db 页面 */
+:root {
+  --bg: #f3f4f6; --panel: #ffffff; --panel2: #f9fafb; --line: #e5e7eb; --line2: #d1d5db;
+  --text: #111827; --muted: #6b7280; --faint: #9ca3af;
+  --accent: #2563eb; --accent-bg: #dbeafe; --accent-text: #1e40af;
+  --ok: #059669; --err: #dc2626; --warn-bg: #fffbeb; --warn-line: #f59e0b;
+  --bar: #1f2937; --bar-text: #f9fafb; --bar-muted: #9ca3af;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0b0f17; --panel: #111827; --panel2: #0f1623; --line: #1f2937; --line2: #374151;
+    --text: #e5e7eb; --muted: #9ca3af; --faint: #6b7280;
+    --accent: #3b82f6; --accent-bg: #1e3a8a; --accent-text: #dbeafe;
+    --warn-bg: #2a2110; --bar: #030712;
+  }
+}
 * { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', sans-serif;
-  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 100%);
-  min-height: 100vh;
-  padding: 40px 20px;
+  font: 14px/1.45 -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg); color: var(--text); display: flex; flex-direction: column; overflow: hidden;
 }
-.container {
-  max-width: 1200px;
-  margin: 0 auto;
-  background: white;
-  border-radius: 15px;
-  padding: 40px;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-}
-h1 { color: #333; margin-bottom: 10px; }
-/* 顶部信息行:Endpoint 固定在前,Database 在后(定宽,切库不抖),退出靠右 */
-.db-info {
-  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
-  margin: 6px 0 24px; font-size: 13px;
-}
-.db-info .meta { display: inline-flex; align-items: center; gap: 8px; }
-.db-info .k {
-  font-size: 11px; font-weight: 600; letter-spacing: .06em;
-  text-transform: uppercase; color: #9ca3af;
-}
-.chip {
-  background: #f3f4f6; border: 1px solid #e5e7eb; border-radius: 6px;
-  padding: 4px 10px; color: #374151; font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-}
-/* 定宽,像 format 的固定列:内容长短变化不影响后面元素的位置 */
-#info-db { width: 160px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+button { font: inherit; color: inherit; }
+input, textarea { font: inherit; color: var(--text); background: var(--panel); }
+[hidden] { display: none !important; }
+a { color: var(--accent); }
 
-/* 输出日志(DataGrip 风格) */
-.log {
-  background: #1f2937; color: #d1d5db; border-radius: 8px;
-  padding: 10px 14px; margin: 12px 0 0; max-height: 200px; overflow: auto;
-  font: 12px/1.7 ui-monospace, 'Courier New', monospace; white-space: pre-wrap;
-}
-.log:empty { display: none; }
-.log.expanded { max-height: 360px; }
-.log .sep { border-top: 1px dashed #4b5563; margin: 6px 0; }
-.log .sql { color: #93c5fd; }
-.log .ok  { color: #86efac; }
-.log .err { color: #fca5a5; }
+/* ---- top bar ---- */
+.bar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--bar); color: var(--bar-text);
+  flex-wrap: wrap; min-height: 52px; }
+.brand { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.brand .logo { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+  display: grid; place-items: center; font-size: 14px; }
+.crumbs { display: flex; align-items: center; gap: 6px; color: var(--bar-muted); font-size: 13px; }
+.crumbs b { color: var(--bar-text); font-weight: 600; }
+.tools { display: flex; gap: 2px; flex-wrap: wrap; }
+.tb { background: transparent; border: 1px solid transparent; color: var(--bar-text); border-radius: 6px; padding: 5px 9px;
+  cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.tb:hover:not(:disabled) { background: rgba(255,255,255,.1); }
+.tb:disabled { opacity: .35; cursor: default; }
+.sep { width: 1px; height: 20px; background: rgba(255,255,255,.15); margin: 0 4px; }
+.spacer { flex: 1; }
+.search { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); border-radius: 6px;
+  color: var(--bar-text); padding: 6px 10px; width: 240px; outline: none; }
+.search::placeholder { color: var(--bar-muted); }
+.search:focus { border-color: var(--accent); background: rgba(255,255,255,.12); }
+.chip { font: 12px var(--mono); color: var(--bar-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* Controls */
-.controls { display: flex; gap: 15px; margin: 20px 0; flex-wrap: wrap; align-items: center; }
-.controls label { font-size: 14px; font-weight: 600; color: #4b5563; }
-.controls select {
-  padding: 10px 15px; border: 2px solid #e5e7eb; border-radius: 6px;
-  font-size: 14px; min-width: 180px; background: white;
-}
-.btn {
-  padding: 10px 20px; border: none; border-radius: 6px;
-  font-weight: 600; cursor: pointer; transition: all .3s; font-size: 14px;
-}
-.btn-primary   { background: #10b981; color: white; }
-.btn-primary:hover { background: #059669; }
-.btn-secondary { background: #667eea; color: white; }
-.btn-secondary:hover { background: #5568d3; }
-.btn-ghost { background: white; color: #374151; border: 2px solid #e5e7eb; }
-.btn-ghost:hover { border-color: #667eea; color: #667eea; }
-.btn-danger {
-  background: #ef4444; color: white; padding: 5px 10px;
-  border: none; border-radius: 4px; cursor: pointer; font-size: 12px;
-}
-.btn-danger:hover { background: #dc2626; }
-.btn-small { padding: 5px 10px; font-size: 12px; border-radius: 4px; }
+/* ---- generic ---- */
+.btn { padding: 7px 14px; border-radius: 6px; border: 1px solid var(--line2); background: var(--panel); cursor: pointer;
+  font-weight: 500; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn.danger { background: var(--err); border-color: var(--err); color: #fff; }
+.btn.primary:hover:not(:disabled), .btn.danger:hover:not(:disabled) { filter: brightness(1.08); color: #fff; }
+.btn.sm { padding: 3px 9px; font-size: 12px; }
+.icon-btn { border: none; background: none; cursor: pointer; padding: 3px 6px; border-radius: 5px; color: var(--muted); font-size: 13px; }
+.icon-btn:hover:not(:disabled) { background: var(--line); color: var(--accent); }
+.icon-btn:disabled { opacity: .35; cursor: default; }
+.muted { color: var(--muted); }
+.mono { font-family: var(--mono); }
+.empty { padding: 48px 20px; text-align: center; color: var(--muted); }
+.empty .big { font-size: 40px; margin-bottom: 8px; }
+.tag { display: inline-block; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 0 8px;
+  font-size: 12px; margin: 0 4px 4px 0; }
 
-/* Table section */
-.table-section {
-  margin: 30px 0; border: 2px solid #e5e7eb; border-radius: 10px;
-  padding: 20px; background: #f8fafc;
-}
-.table-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.table-name { font-size: 22px; font-weight: 600; color: #1f2937; }
-.row-count {
-  background: #10b981; color: white; padding: 6px 15px;
-  border-radius: 20px; font-size: 14px; font-weight: 600;
-}
-.section-title {
-  font-size: 16px; font-weight: 600; color: #4b5563; margin: 20px 0 10px 0;
-  display: flex; align-items: center; gap: 10px;
-}
-table {
-  width: 100%; border-collapse: collapse; background: white;
-  border-radius: 8px; overflow: hidden; margin-bottom: 20px;
-}
-th {
-  background: #374151; color: white; padding: 12px; text-align: left;
-  font-weight: 600; font-size: 14px; white-space: nowrap;
-}
-td {
-  padding: 10px 12px; border-bottom: 1px solid #e5e7eb;
-  font-size: 14px; color: #374151; max-width: 420px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-tr:last-child td { border-bottom: none; }
-tr:hover td { background: #f9fafb; }
-td.null { color: #9ca3af; font-style: italic; }
-td input {
-  width: 100%; min-width: 80px; padding: 6px 8px;
-  border: 2px solid #e5e7eb; border-radius: 4px; font-size: 13px;
-}
+/* ---- home: the vault folder ---- */
+#home { flex: 1; overflow: auto; padding: 28px; }
+.folder { max-width: 1000px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.folder-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.folder-head h2 { font-size: 17px; font-weight: 600; }
+.folder-head .path { font: 12px var(--mono); color: var(--muted); }
+table { width: 100%; border-collapse: collapse; }
+th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line);
+  background: var(--panel2); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
+td { padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 320px; }
+tr.row:hover td { background: var(--panel2); }
+tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
+.vault-name { display: flex; align-items: center; gap: 10px; font-weight: 600; cursor: pointer; }
+.vault-name .kdbx { width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center;
+  background: linear-gradient(135deg, #22c55e, #15803d); color: #fff; font-size: 15px; }
+.actions { display: flex; gap: 4px; justify-content: flex-end; }
 
-/* Add form */
-.add-form {
-  background: #f0fdf4; border: 2px solid #10b981; border-radius: 8px;
-  padding: 20px; margin: 20px 0;
-}
-.add-form h3 { color: #065f46; margin-bottom: 15px; font-size: 18px; }
-.form-grid {
-  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 15px; margin-bottom: 15px;
-}
-.form-field label {
-  display: block; font-size: 13px; font-weight: 600;
-  color: #374151; margin-bottom: 5px;
-}
-.form-field input {
-  width: 100%; padding: 8px; border: 2px solid #e5e7eb;
-  border-radius: 4px; font-size: 14px;
-}
-.form-field small { color: #6b7280; font-size: 12px; }
+/* ---- the open vault: groups | entries | details (KeePassXC's window) ---- */
+#vault { flex: 1; display: grid; grid-template-columns: 250px minmax(0, 1fr) 360px; min-height: 0; }
+.pane { min-height: 0; overflow: auto; background: var(--panel); }
+#tree { border-right: 1px solid var(--line); padding: 8px 0; background: var(--panel2); }
+#list { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+#detail { padding: 18px 20px; }
+.pane-title { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
+  padding: 6px 10px 6px 14px; display: flex; align-items: center; gap: 2px; }
+.tree ul { list-style: none; }
+.node { display: flex; align-items: center; gap: 4px; padding: 4px 10px 4px 0; cursor: pointer; user-select: none; }
+.node:hover { background: var(--line); }
+.node.sel { background: var(--accent-bg); color: var(--accent-text); font-weight: 600; }
+.node .caret { width: 16px; text-align: center; color: var(--faint); font-size: 10px; flex: none; }
+.node .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.node .count { font-size: 11px; color: var(--faint); }
+.list-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); justify-content: space-between; }
+.list-head .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-body { flex: 1; overflow: auto; }
+.list-body tr.row { cursor: default; }
+.list-body td.t { font-weight: 500; }
+.banner { padding: 10px 14px; border-bottom: 1px solid var(--warn-line); background: var(--warn-bg); display: flex; gap: 10px;
+  align-items: center; flex-wrap: wrap; font-size: 13px; }
+.banner b { color: var(--err); }
+.d-title { font-size: 19px; font-weight: 700; margin-bottom: 2px; word-break: break-word; }
+.d-path { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+.field { margin-bottom: 14px; }
+.field .k { font-size: 11px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--faint); margin-bottom: 3px; }
+.field .v { display: flex; align-items: center; gap: 4px; min-height: 26px; }
+.field .val { flex: 1; word-break: break-all; }
+.field .val.pw { font-family: var(--mono); letter-spacing: .04em; }
+.field pre { white-space: pre-wrap; word-break: break-word; font: inherit; background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 6px; padding: 8px 10px; max-height: 260px; overflow: auto; }
+.d-actions { display: flex; gap: 8px; margin: 18px 0 8px; }
+.d-meta { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 10px; line-height: 1.8; }
 
-/* Pagination */
-.pagination { display: flex; gap: 10px; justify-content: center; align-items: center; margin: 20px 0 0; }
-.pagination button, .pagination span {
-  padding: 8px 12px; border-radius: 6px; font-size: 14px;
-  color: #374151; background: white; border: 2px solid #e5e7eb;
-}
-.pagination button { cursor: pointer; }
-.pagination button:hover:not(:disabled) { background: #667eea; color: white; border-color: #667eea; }
-.pagination button:disabled { opacity: .5; cursor: not-allowed; }
-.pagination .current { background: #667eea; color: white; border-color: #667eea; font-weight: 600; }
+/* ---- status bar + history of server calls ---- */
+.status { display: flex; align-items: center; gap: 12px; padding: 4px 14px; font: 12px var(--mono); color: var(--muted);
+  background: var(--panel); border-top: 1px solid var(--line); cursor: pointer; min-height: 26px; }
+.status .last { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ok { color: var(--ok); } .err { color: var(--err); }
+.history { position: fixed; left: 0; right: 0; bottom: 26px; max-height: 40vh; overflow: auto; background: #111827; color: #d1d5db;
+  font: 12px/1.7 var(--mono); padding: 8px 14px; border-top: 1px solid #374151; z-index: 5; }
+.history .ok { color: #86efac; } .history .err { color: #fca5a5; }
 
-.empty { padding: 40px; text-align: center; color: #9ca3af; }
+/* ---- dialogs ---- */
+dialog { border: none; border-radius: 12px; padding: 22px 24px; width: 440px; max-width: calc(100vw - 32px); max-height: calc(100vh - 32px);
+  background: var(--panel); color: var(--text); box-shadow: 0 24px 64px rgba(0,0,0,.35); margin: auto; }
+dialog.wide { width: 620px; }
+dialog::backdrop { background: rgba(15,23,42,.55); }
+dialog h3 { font-size: 17px; margin-bottom: 4px; }
+dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
+.f { margin-top: 12px; }
+.f > label { display: block; font-size: 12px; font-weight: 600; color: var(--muted); margin-bottom: 4px; }
+.f input[type=text], .f input[type=password], .f textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line2);
+  border-radius: 6px; outline: none; }
+.f input:focus, .f textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.f textarea { min-height: 90px; resize: vertical; }
+.f .row-in { display: flex; gap: 4px; align-items: center; }
+.f .row-in input { flex: 1; }
+.f .hint { font-size: 12px; color: var(--faint); margin-top: 3px; }
+.f.check { margin-top: 6px; }
+.f.check label { display: flex; gap: 8px; align-items: center; font-weight: 500; color: var(--text); font-size: 13px; }
+.meter { height: 4px; border-radius: 2px; background: var(--line); margin-top: 6px; overflow: hidden; }
+.meter i { display: block; height: 100%; width: 0; transition: width .2s, background .2s; }
+.dlg-err { color: var(--err); font-size: 13px; min-height: 18px; margin-top: 10px; }
+.dlg-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.dlg-actions .left { margin-right: auto; }
+.gen-out { font: 17px var(--mono); padding: 12px; border: 1px solid var(--line2); border-radius: 8px; background: var(--panel2);
+  word-break: break-all; min-height: 50px; display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.gen-out span { flex: 1; }
+.gen-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+.custom-row { display: grid; grid-template-columns: 1fr 1.4fr auto auto; gap: 4px; margin-top: 4px; align-items: center; }
+.custom-row input[type=text], .custom-row input[type=password] { width: 100%; padding: 6px 8px; border: 1px solid var(--line2); border-radius: 6px; }
+.toast { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); background: #111827; color: #f9fafb;
+  padding: 9px 16px; border-radius: 8px; font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.3); z-index: 20; opacity: 0;
+  transition: opacity .2s; pointer-events: none; }
+.toast.show { opacity: 1; }
+.toast.bad { background: var(--err); }
 
-/* SQL console */
-.sql-section {
-  margin: 20px 0; border: 2px solid #e5e7eb; border-radius: 10px;
-  padding: 20px; background: #f8fafc;
+@media (max-width: 1000px) {
+  #vault { grid-template-columns: 200px minmax(0, 1fr); }
+  #detail { grid-column: 1 / -1; border-top: 1px solid var(--line); max-height: 45vh; }
 }
-.sql-section textarea {
-  width: 100%; height: 90px; resize: vertical; padding: 12px;
-  border: 2px solid #e5e7eb; border-radius: 6px; font-size: 14px;
-  font-family: ui-monospace, 'Courier New', monospace;
+@media (max-width: 640px) {
+  #home { padding: 12px; }
+  #vault { grid-template-columns: 1fr; overflow: auto; }
+  #tree { max-height: 30vh; border-right: none; border-bottom: 1px solid var(--line); }
+  .search { width: 100%; order: 10; }
+  .tb .lbl { display: none; }
 }
-.sql-actions { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
-.hint { font-size: 12px; color: #6b7280; }
-
-/* 页内模态框(不用浏览器 prompt,避免被"阻止对话框"机制吞掉) */
-dialog {
-  border: none; border-radius: 10px; padding: 25px;
-  box-shadow: 0 20px 60px rgba(0,0,0,.3); min-width: 340px; max-width: 90vw;
-  position: fixed; inset: 0; margin: auto;   /* centred in the viewport, whatever the page scroll */
-}
-dialog::backdrop { background: rgba(0,0,0,.4); }
-dialog h3 { margin-bottom: 15px; color: #1f2937; font-size: 17px; }
-dialog .form-grid { grid-template-columns: 1fr; }
-@media (max-width: 640px){ .container { padding: 20px; } body { padding: 16px; } }
 </style>
 </head>
 <body>
-<div class="container">
-  <h1>⚡ &lt;project&gt; console</h1>
-  <div class="db-info">
-    <span class="meta"><span class="k">Endpoint</span><span class="chip" id="info-host">-</span></span>
-    <button class="btn btn-ghost btn-small" id="logout">sign out</button>
-  </div>
+<header class="bar">
+  <div class="brand" id="brand" title="All vaults"><span class="logo">🔐</span>s3keepass</div>
+  <nav class="crumbs" id="crumbs"></nav>
+  <div class="sep"></div>
+  <div class="tools" id="tools"></div>
+  <div class="spacer"></div>
+  <input class="search" id="search" type="search" placeholder="Search entries (⌘F)" autocomplete="off" hidden>
+  <button class="tb" id="lock" title="Lock (⌘L); also after 5 minutes idle" hidden>🔒 <span class="lbl">Lock</span></button>
+  <span class="chip" id="host" title="Endpoint"></span>
+  <button class="tb" id="signout" title="Forget this deployment's sign-in (HTTP Basic) on this browser">Sign out</button>
+</header>
 
-  <!-- template: the command box. Every project has one: SQL, redis commands, a DAG trigger, a message... -->
-  <div class="sql-section">
-    <div class="section-title">Command</div>
-    <textarea id="cmd" placeholder="e.g. ping"></textarea>
-    <div class="sql-actions">
-      <button class="btn btn-primary" id="run">▶ Run</button>
-      <span class="hint">⌘/Ctrl+Enter runs</span>
-      <span style="flex:1"></span>
-      <button class="btn btn-ghost btn-small" id="togglelog">history</button>
-    </div>
-    <div class="log" id="log"></div>
-  </div>
+<main id="home"></main>
+<main id="vault" hidden>
+  <aside class="pane tree" id="tree"></aside>
+  <section class="pane" id="list"></section>
+  <section class="pane" id="detail"></section>
+</main>
 
-  <!-- template: the project's views (lists, tables, detail panes) render into #main -->
-  <div id="main"></div>
-</div>
+<footer class="status" id="status" title="Click: history of server calls">
+  <span class="last" id="last">ready</span><span id="savestate"></span>
+</footer>
+<div class="history" id="history" hidden></div>
+<div class="toast" id="toast"></div>
+<input type="file" id="file" accept=".kdbx" hidden>
 
-<dialog id="dlg">
-  <form method="dialog">
-    <h3 id="dlgtitle"></h3>
-    <div class="form-grid" id="dlgbody"></div>
-    <div class="sql-actions">
-      <button class="btn btn-primary" value="ok">OK</button>
-      <button class="btn btn-ghost" value="cancel" formnovalidate>Cancel</button>
-    </div>
-  </form>
-</dialog>
-
+<script src="vendor/kdbxweb.min.js"></script>
+<script src="vendor/argon2-bundled.min.js"></script>
 <script>
-// ---------------- shared shell: credentials, dialog, log, api() ----------------
+// vault-core: the only code that touches KeePass crypto (vendored kdbxweb + argon2, never hand-written).
+// tests/compat/kdbx_node.js runs this same block in Node against keepassxc-cli. No DOM in here.
+const Vault = (() => {
+  const K = kdbxweb;
+  K.CryptoEngine.setArgon2Impl((pass, salt, mem, time, hashLen, parallelism, type) =>
+    argon2.hash({pass: new Uint8Array(pass), salt: new Uint8Array(salt), mem, time, hashLen, parallelism, type})
+      .then(r => r.hash.slice().buffer));
+  const STANDARD = ['Title', 'UserName', 'Password', 'URL', 'Notes'];
+  const pv = s => K.ProtectedValue.fromString(s);
+  // master key = password and/or key file, as in KeePass. A key file is a KeePass .keyx / .key, or any other file,
+  // which counts by its SHA-256. kdbxweb rejects XML that is not a key file (an .svg, say); KeePassXC hashes it — so do we.
+  async function keyMaterial(keyFile) {
+    if (!keyFile) return null;
+    try { await new K.KdbxCredentials(null, keyFile).ready; return keyFile; }
+    catch (e) { if (e.code !== 'InvalidArg') throw e; return K.CryptoEngine.sha256(keyFile); }
+  }
+  async function creds(password, keyFile) {
+    const c = new K.KdbxCredentials(password ? pv(password) : null, await keyMaterial(keyFile));
+    await c.ready;
+    return c;
+  }
+  const text = v => v == null ? '' : typeof v === 'string' ? v : v.getText();
+
+  // a new vault: KDBX 4, AES-256, Argon2id 64 MiB x 8 (KeePassXC's defaults, Argon2id instead of Argon2d)
+  async function create(name, password, keyFile) {
+    const db = K.Kdbx.create(await creds(password, keyFile), name);
+    db.setKdf(K.Consts.KdfId.Argon2id);
+    const p = db.header.kdfParameters, T = K.VarDictionary.ValueType;
+    p.set('M', T.UInt64, K.Int64.from(64 * 1024 * 1024));
+    p.set('I', T.UInt64, K.Int64.from(8));
+    p.set('P', T.UInt32, 2);
+    return db;
+  }
+  const open = async (bytes, password, keyFile) => K.Kdbx.load(bytes, await creds(password, keyFile));
+  function save(db) { db.cleanup({historyRules: true}); return db.save(); }
+  async function setMasterKey(db, password, keyFile) {
+    await db.credentials.setPassword(password ? pv(password) : null);
+    await db.credentials.setKeyFile(await keyMaterial(keyFile));
+  }
+  const newKeyFile = () => K.KdbxCredentials.createRandomKeyFile(2);     // a KeePassXC-style .keyx (XML 2.0)
+
+  // an entry as plain values: the five standard fields, tags, custom attributes (protected ones stay protected)
+  function fields(entry) {
+    const custom = [];
+    for (const [name, v] of entry.fields) if (!STANDARD.includes(name)) custom.push({name, value: text(v), protected: typeof v !== 'string'});
+    const f = name => text(entry.fields.get(name));
+    return {title: f('Title'), username: f('UserName'), password: f('Password'), url: f('URL'), notes: f('Notes'),
+            tags: [...(entry.tags || [])], custom};
+  }
+  function write(entry, f) {
+    entry.fields.set('Title', f.title || '');
+    entry.fields.set('UserName', f.username || '');
+    entry.fields.set('Password', pv(f.password || ''));
+    entry.fields.set('URL', f.url || '');
+    entry.fields.set('Notes', f.notes || '');
+    for (const name of [...entry.fields.keys()]) if (!STANDARD.includes(name)) entry.fields.delete(name);
+    for (const c of f.custom || []) if (c.name && !STANDARD.includes(c.name)) entry.fields.set(c.name, c.protected ? pv(c.value) : c.value);
+    entry.tags = (f.tags || []).filter(Boolean);
+    entry.times.update();
+  }
+  function addEntry(db, group, f) { const e = db.createEntry(group); write(e, f); return e; }
+  function editEntry(entry, f) { entry.pushHistory(); write(entry, f); }     // the previous version goes to the entry's history
+  const addGroup = (db, parent, name) => db.createGroup(parent, name);
+  function renameGroup(group, name) { group.name = name; group.times.update(); }
+  const recycleBin = db => db.meta.recycleBinEnabled && db.meta.recycleBinUuid ? db.getGroup(db.meta.recycleBinUuid) : undefined;
+  function inRecycleBin(db, item) {
+    const bin = recycleBin(db);
+    for (let g = item; bin && g; g = g.parentGroup) if (g === bin) return true;
+    return false;
+  }
+  // delete = move to the recycle bin, as KeePassXC does; from inside the bin it is permanent
+  function remove(db, item) { if (inRecycleBin(db, item)) db.move(item, null); else db.remove(item); }
+  return {create, open, save, setMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin, inRecycleBin, remove};
+})();
+</script>
+<script>
+// ---------------- shell: DOM helper, sign-in (HTTP Basic), every server call, history ----------------
 const $ = s => document.querySelector(s);
-const KEY = '<project>_';                       // localStorage prefix: only the credential is kept
+const IDLE_LOCK_MIN = 5, CLIPBOARD_CLEAR_S = 30, MAX_BYTES = 5 * 1024 * 1024;
+const NAME_RE = /^[\p{L}\p{N}_](?:[\p{L}\p{N}_ .()-]{0,62}[\p{L}\p{N}_.()-])?$/u;   // = lambda_function.NAME
+
+// h('div', {class: 'x', onclick: f}, child, 'text') — user data only ever becomes text, never HTML
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v == null || v === false) continue;
+    if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
+    else if (k === 'class') el.className = v;
+    else if (k === 'text') el.textContent = v;
+    else if (k === 'value') el.value = v;
+    else if (k === 'checked') el.checked = v;
+    else el.setAttribute(k, v === true ? '' : v);
+  }
+  for (const c of kids.flat()) if (c != null && c !== false) el.append(c instanceof Node ? c : String(c));
+  return el;
+}
 const store = {
-  get: k => { try { return localStorage.getItem(KEY + k); } catch(e){ return null; } },
-  set: (k, v) => { try { v == null ? localStorage.removeItem(KEY + k) : localStorage.setItem(KEY + k, v); } catch(e){} },
+  get: k => { try { return localStorage.getItem('s3keepass_' + k); } catch (e) { return null; } },
+  set: (k, v) => { try { v == null ? localStorage.removeItem('s3keepass_' + k) : localStorage.setItem('s3keepass_' + k, v); } catch (e) {} },
 };
 let cred = store.get('cred') || '';
-function saveCred(c){ cred = c; store.set('cred', c || null); }
-$('#info-host').textContent = location.host;
+$('#host').textContent = location.host;
 
-// in-page dialog (browsers suppress prompt() inside Lambda URL pages)
-function dialog(title, fields){
-  return new Promise(resolve => {
-    $('#dlgtitle').textContent = title;
-    $('#dlgbody').innerHTML = fields.map(f =>
-      `<label>${f.label}</label><input name="${f.name}" type="${f.type || 'text'}" value="${f.value || ''}" ${f.required ? 'required' : ''}>`).join('');
-    const d = $('#dlg');
-    d.onclose = () => resolve(d.returnValue === 'ok' ? Object.fromEntries(new FormData(d.querySelector('form'))) : null);
-    d.showModal();
-    const first = d.querySelector('input'); if (first) first.focus();
-  });
-}
-async function askCred(){
-  const r = await dialog('Sign in', [{label: 'user', name: 'u', required: true}, {label: 'password', name: 'p', type: 'password', required: true}]);
-  if (!r) return false;
-  saveCred(btoa(r.u + ':' + r.p));
-  return true;
-}
-
-// log pane: one line per call, with the server's own timing
+const ts = () => new Date().toTimeString().slice(0, 8);
+const size = n => n < 1024 ? n + ' B' : n < 1048576 ? (n / 1024).toFixed(1) + ' KB' : (n / 1048576).toFixed(1) + ' MB';
+const when = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(); };
 const logLines = [];
-let logOpen = false;
-function ts(){ return new Date().toISOString().replace('T', ' ').slice(0, 19); }
-function log(text, cls){ logLines.push({text, cls}); renderLog(); }
-function renderLog(){
-  const el = $('#log');
-  const lines = logOpen ? logLines : logLines.slice(-3);
-  el.innerHTML = lines.map(l => `<div class="${l.cls || ''}">${esc(l.text)}</div>`).join('');
+function log(text, cls) {
+  logLines.push({text: `[${ts()}] ${text}`, cls});
+  if (logLines.length > 500) logLines.shift();
+  const last = $('#last'); last.textContent = logLines[logLines.length - 1].text; last.className = 'last ' + (cls || '');
+  if (!$('#history').hidden) renderHistory();
+}
+function renderHistory() {
+  const el = $('#history');
+  el.replaceChildren(...logLines.map(l => h('div', {class: l.cls || ''}, l.text)));
   el.scrollTop = el.scrollHeight;
 }
-function esc(s){ return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-$('#togglelog').onclick = () => { logOpen = !logOpen; renderLog(); };
+$('#status').addEventListener('click', () => { const el = $('#history'); el.hidden = !el.hidden; if (!el.hidden) renderHistory(); });
 
-// every API call goes through here: Basic auth, 401 -> sign in again, errors -> log
-async function api(path, opts = {}){
-  if (!cred && !(await askCred())) throw new Error('not signed in');
-  const r = await fetch(path, Object.assign({}, opts, {
-    headers: Object.assign({'content-type': 'application/json', 'authorization': 'Basic ' + cred}, opts.headers || {})}));
-  if (r.status === 401){ saveCred(''); if (await askCred()) return api(path, opts); throw new Error('not signed in'); }
-  const data = await r.json().catch(() => ({error: 'bad response'}));
-  if (!r.ok){ log(`[${ts()}] ${data.error || r.status}`, 'err'); throw new Error(data.error || r.status); }
+let toastTimer;
+function toast(text, bad) {
+  const t = $('#toast'); t.textContent = text; t.className = 'toast show' + (bad ? ' bad' : '');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = 'toast', 2600);
+}
+
+// every call to the Lambda: Basic auth, 401 -> sign in again, one history line with the server's own time
+// and what it did on S3. raw: the vault's bytes come back (ArrayBuffer + ETag) instead of JSON.
+async function call(method, path, opts = {}) {
+  if (!cred && !(await signIn())) throw new Error('not signed in');
+  const t0 = performance.now();
+  const what = `${method} ${decodeURIComponent(path.replace(/^\/api\//, ''))}`;
+  let r;
+  try {
+    r = await fetch(path, {method, body: opts.body, cache: 'no-store',
+      headers: Object.assign({authorization: 'Basic ' + cred}, opts.headers || {})});
+  } catch (e) { log(`${what} · network error: ${e.message}`, 'err'); throw e; }
+  if (r.status === 401) {
+    cred = ''; store.set('cred', null);
+    if (await signIn()) return call(method, path, opts);
+    throw new Error('not signed in');
+  }
+  const ms = Math.round(performance.now() - t0);
+  if (opts.raw && r.ok) {
+    const bytes = await r.arrayBuffer();
+    log(`${what} · ${size(bytes.byteLength)} · ${ms} ms (server ${r.headers.get('x-server-ms')} ms) · ${r.headers.get('x-backend') || ''}`, 'ok');
+    return {bytes, etag: r.headers.get('etag')};
+  }
+  const data = await r.json().catch(() => ({error: `HTTP ${r.status}`}));
+  if (!r.ok) {
+    log(`${what} · ${r.status} ${data.error || ''}`, 'err');
+    const e = new Error(data.error || `HTTP ${r.status}`); e.status = r.status; throw e;
+  }
+  log(`${what} · ${ms} ms (server ${data.ms} ms)${data.backend ? ' · ' + data.backend : ''}`, 'ok');
   return data;
 }
-$('#logout').onclick = () => { saveCred(''); location.reload(); };
+const vaultPath = name => '/api/vaults/' + encodeURIComponent(name);
+const putVault = (name, bytes, cond) => call('PUT', vaultPath(name), {body: bytes,
+  headers: Object.assign({'content-type': 'application/octet-stream'}, cond)});
 
-// ---------------- the project's part: run a command, render views into #main ----------------
-async function run(){
-  const cmd = $('#cmd').value.trim();
-  if (!cmd) return;
-  log(`> ${cmd}`, 'sql');
-  const t0 = performance.now();
-  const data = await api('/api/' + cmd);                      // example: "ping" -> GET /api/ping
-  log(`[${ts()}] ${JSON.stringify(data)} (${Math.round(performance.now() - t0)} ms, server ${data.ms} ms)`, 'ok');
-  render();
+async function signIn() {
+  const r = await ask('Sign in', [
+    {name: 'u', label: 'User', required: true, autocomplete: 'username'},
+    {name: 'p', label: 'Password', type: 'password', required: true, autocomplete: 'current-password'}],
+    {ok: 'Sign in', note: 'The user and password of this s3keepass deployment (terraform/s3keepass.json). ' +
+                          'Your vaults stay locked: each one needs its own master password.'});
+  if (!r) return false;
+  cred = btoa(String.fromCharCode(...new TextEncoder().encode(r.u + ':' + r.p)));
+  store.set('cred', cred);
+  return true;
 }
-$('#run').onclick = run;
-$('#cmd').addEventListener('keydown', e => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') run(); });
+$('#signout').addEventListener('click', async () => { await lock(); if (S) return; cred = ''; store.set('cred', null); location.reload(); });
 
-async function render(){
-  const data = await api('/api/items');
-  $('#main').innerHTML = `<div class="section-title">Items</div><table><tr><th>name</th></tr>` +
-    data.items.map(i => `<tr><td>${esc(i.name)}</td></tr>`).join('') + `</table>`;
+// ---------------- dialogs: one <dialog> per question, stacked (the generator opens over the entry editor) ----------------
+// fields: {name, label, type: text|password|textarea|checkbox, value, required, hint, generate, meter} or {el}
+// opts: {ok (false = no OK button), cancel, danger, note, wide, extra, busy, ctl,
+//        validate(values) -> error text | null — may be async; the dialog stays open and shows the error}
+const dialogOpen = () => !!document.querySelector('dialog[open]');
+function ask(title, fields, opts = {}) {
+  return new Promise(resolve => {
+    const d = h('dialog', {class: opts.wide ? 'wide' : null});
+    const inputs = {}, err = h('div', {class: 'dlg-err'});
+    let done = false;
+    const finish = v => { if (done) return; done = true; if (d.open) d.close(); d.remove(); resolve(v); };
+    if (opts.ctl) opts.ctl.close = () => finish(null);
+    const okBtn = opts.ok === false ? null : h('button', {class: 'btn ' + (opts.danger ? 'danger' : 'primary'), type: 'submit'}, opts.ok || 'OK');
+    const form = h('form', {novalidate: true},
+      h('h3', {text: title}), opts.note ? h('p', {class: 'note', text: opts.note}) : null,
+      fields.map(f => f.el || fieldEl(f, inputs)), err,
+      h('div', {class: 'dlg-actions'}, opts.extra ? h('span', {class: 'left'}, opts.extra) : null,
+        h('button', {type: 'button', class: 'btn', onclick: () => finish(null)}, opts.cancel || 'Cancel'), okBtn));
+    form.addEventListener('submit', async e => {
+      e.preventDefault();
+      if (!okBtn || okBtn.disabled) return;
+      const vals = {};
+      for (const [k, el] of Object.entries(inputs)) vals[k] = el.type === 'checkbox' ? el.checked : el.type === 'file' ? el.keyFile : el.value;
+      const missing = fields.find(f => f.required && !String(vals[f.name] || '').trim());
+      if (missing) { err.textContent = `${missing.label} is required`; inputs[missing.name].focus(); return; }
+      if (opts.validate) {
+        okBtn.disabled = true; err.textContent = opts.busy || '';
+        try { const msg = await opts.validate(vals); if (msg) { err.textContent = msg; return; } }
+        catch (x) { err.textContent = x.message; return; }
+        finally { okBtn.disabled = false; }
+      }
+      finish(vals);
+    });
+    d.addEventListener('close', () => finish(null));      // Esc
+    d.append(form); document.body.append(d); d.showModal();
+    const first = form.querySelector('input:not([type=checkbox]):not([type=range]), textarea');
+    if (first) { first.focus(); if (first.select) first.select(); }
+  });
 }
-render().catch(() => {});
+function fieldEl(f, inputs) {
+  if (f.type === 'keyfile') return keyFileEl(f, inputs);
+  if (f.type === 'checkbox') {
+    const cb = h('input', {type: 'checkbox', checked: !!f.value});
+    inputs[f.name] = cb;
+    return h('div', {class: 'f check'}, h('label', {}, cb, f.label));
+  }
+  const input = f.type === 'textarea'
+    ? h('textarea', {value: f.value || '', spellcheck: 'false'})
+    : h('input', {type: f.type || 'text', value: f.value == null ? '' : f.value, autocomplete: f.autocomplete || 'off',
+                  spellcheck: 'false', class: f.type === 'password' ? 'mono' : null});
+  inputs[f.name] = input;
+  const extras = [];
+  if (f.type === 'password') {
+    extras.push(h('button', {type: 'button', class: 'icon-btn', title: 'Show / hide', onclick: () => {
+      input.type = input.type === 'password' ? 'text' : 'password'; }}, '👁'));
+    if (f.generate) extras.push(h('button', {type: 'button', class: 'icon-btn', title: 'Password generator', onclick: async () => {
+      const pw = await generatorDialog(true);
+      if (pw != null) { input.value = pw; input.type = 'text'; input.dispatchEvent(new Event('input')); } }}, '🎲'));
+  }
+  const bar = f.meter ? h('i') : null, meter = bar ? h('div', {class: 'meter'}, bar) : null;
+  if (bar) {
+    const upd = () => { const s = strength(input.value); bar.style.width = s.pct + '%'; bar.style.background = s.color; meter.title = s.label; };
+    input.addEventListener('input', upd); upd();
+  }
+  return h('div', {class: 'f'}, h('label', {text: f.label}),
+    extras.length ? h('div', {class: 'row-in'}, input, extras) : input, meter,
+    f.hint ? h('div', {class: 'hint', text: f.hint}) : null);
+}
+// a key file picker: the file is read in the browser and never uploaded. generate: offer a new random .keyx.
+function keyFileEl(f, inputs) {
+  const input = h('input', {type: 'file', hidden: true}), label = h('span', {class: 'val muted', text: 'none'});
+  input.keyFile = null;
+  const set = (bytes, name) => { input.keyFile = bytes; label.textContent = name || 'none'; label.className = 'val' + (bytes ? '' : ' muted'); };
+  input.addEventListener('change', async () => { const file = input.files[0]; if (file) set(await file.arrayBuffer(), file.name); });
+  inputs[f.name] = input;
+  return h('div', {class: 'f'}, h('label', {text: f.label}),
+    h('div', {class: 'row-in'}, label, input,
+      h('button', {type: 'button', class: 'btn sm', onclick: () => input.click()}, 'Choose…'),
+      f.generate ? h('button', {type: 'button', class: 'btn sm', title: 'Create a random key file and download it', onclick: async () => {
+        const bytes = await Vault.newKeyFile(), name = (f.generate() || 'vault') + '.keyx';
+        saveFile(bytes, name); set(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), name + ' (new, downloaded)');
+      }}, 'New') : null,
+      h('button', {type: 'button', class: 'icon-btn', title: 'No key file', onclick: () => { input.value = ''; set(null); }}, '✕')),
+    f.hint ? h('div', {class: 'hint', text: f.hint}) : null);
+}
+const KEYFILE_HINT = 'Optional, as in KeePassXC (.keyx, .key or any file). Read in this browser only, never uploaded — keep a copy: without it the vault cannot be opened.';
+const confirmDlg = (title, note, ok = 'Delete') => ask(title, [], {note, ok, danger: true}).then(r => !!r);
+
+// ---------------- password generator ----------------
+const SETS = {upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', lower: 'abcdefghijklmnopqrstuvwxyz', digits: '0123456789',
+              symbols: '!#$%&*+-=?@^_~.,:;()[]{}<>/|'};
+const LOOKALIKE = /[Il1O0o|]/g;
+function genOpts() {
+  const o = {length: 20, upper: true, lower: true, digits: true, symbols: true, similar: true};
+  try { Object.assign(o, JSON.parse(store.get('gen') || '{}')); } catch (e) {}
+  return o;
+}
+function randInt(n) {   // uniform in [0, n): rejection sampling on crypto.getRandomValues, no modulo bias
+  const lim = Math.floor(0x100000000 / n) * n, a = new Uint32Array(1);
+  do crypto.getRandomValues(a); while (a[0] >= lim);
+  return a[0] % n;
+}
+function generate(o) {
+  let sets = Object.keys(SETS).filter(k => o[k]).map(k => o.similar ? SETS[k].replace(LOOKALIKE, '') : SETS[k]);
+  if (!sets.length) sets = [SETS.lower];
+  const all = sets.join(''), n = Math.max(4, Math.min(128, +o.length || 20));
+  let pw;
+  do pw = Array.from({length: n}, () => all[randInt(all.length)]).join('');
+  while (!sets.every(s => [...pw].some(c => s.includes(c))));      // every chosen class appears at least once
+  return pw;
+}
+function strength(pw) {
+  let pool = 0;
+  if (/[a-z]/.test(pw)) pool += 26;
+  if (/[A-Z]/.test(pw)) pool += 26;
+  if (/[0-9]/.test(pw)) pool += 10;
+  if (/[^a-zA-Z0-9]/.test(pw)) pool += 33;
+  const bits = pw.length * Math.log2(pool || 1);
+  const [label, color] = bits < 40 ? ['weak', '#dc2626'] : bits < 70 ? ['fair', '#f59e0b'] : bits < 100 ? ['good', '#16a34a'] : ['excellent', '#059669'];
+  return {pct: Math.min(100, bits), label: `${label} · ~${Math.round(bits)} bits`, color};
+}
+function generatorDialog(use) {
+  const o = genOpts();
+  const out = h('span', {class: 'mono'}), bits = h('div', {class: 'hint'});
+  const len = h('input', {type: 'range', min: 8, max: 64, value: o.length, style: 'flex:1'}), lenN = h('b', {text: o.length});
+  const boxes = {};
+  const cb = (k, label) => { boxes[k] = h('input', {type: 'checkbox', checked: o[k]}); return h('div', {class: 'f check'}, h('label', {}, boxes[k], label)); };
+  const regen = () => {
+    o.length = +len.value; lenN.textContent = o.length;
+    for (const k in boxes) o[k] = boxes[k].checked;
+    store.set('gen', JSON.stringify(o));
+    out.textContent = generate(o); bits.textContent = strength(out.textContent).label;
+  };
+  const body = h('div', {},
+    h('div', {class: 'gen-out'}, out,
+      h('button', {type: 'button', class: 'icon-btn', title: 'New password', onclick: regen}, '↻'),
+      h('button', {type: 'button', class: 'icon-btn', title: 'Copy', onclick: () => copy(out.textContent, 'Password')}, '⧉')),
+    bits,
+    h('div', {class: 'f'}, h('label', {}, 'Length'), h('div', {class: 'row-in'}, len, lenN)),
+    h('div', {class: 'gen-grid'}, cb('upper', 'A–Z'), cb('lower', 'a–z'), cb('digits', '0–9'), cb('symbols', '!#$%&*…'),
+      cb('similar', 'no look-alikes (I l 1 O 0 o |)')));
+  len.addEventListener('input', regen);
+  for (const k in boxes) boxes[k].addEventListener('change', regen);
+  regen();
+  return ask('Password generator', [{el: body}], {ok: use ? 'Use this password' : false, cancel: use ? 'Cancel' : 'Close'})
+    .then(r => r && use ? out.textContent : null);
+}
+
+// ---------------- clipboard: a copied secret is cleared after 30 s ----------------
+let clipToken = 0, clearOnFocus = false;
+async function copy(text, what) {
+  try { await navigator.clipboard.writeText(text); }
+  catch (e) { toast('The browser blocked the clipboard', true); return; }
+  const t = ++clipToken;
+  toast(`${what} copied · clipboard clears in ${CLIPBOARD_CLEAR_S} s`);
+  setTimeout(() => { if (t === clipToken) clearClipboard(); }, CLIPBOARD_CLEAR_S * 1000);
+}
+async function clearClipboard() {
+  try { await navigator.clipboard.writeText(''); clearOnFocus = false; } catch (e) { clearOnFocus = true; }   // needs focus
+}
+addEventListener('focus', () => { if (clearOnFocus) clearClipboard(); });
+
+// ================ the app ================
+// S = the open vault: db is the decrypted database (only in this tab's memory), etag the S3 version it came from.
+let S = null, vaults = [];
+let saving = null, saveAgain = false;
+
+function toolbar(items) {
+  $('#tools').replaceChildren(...items.map(it => it === '|' ? h('div', {class: 'sep'}) :
+    h('button', {class: 'tb', title: it.title || it.label, disabled: !!it.disabled, onclick: it.do}, it.icon, ' ', h('span', {class: 'lbl'}, it.label))));
+}
+function crumbs(...parts) {
+  $('#crumbs').replaceChildren(...parts.flatMap((p, i) => [i ? h('span', {}, '›') : null,
+    i === parts.length - 1 ? h('b', {text: p}) : h('span', {text: p})]).filter(Boolean));
+}
+
+// ---------------- home: the vault folder, s3://<bucket>/keepass/*.kdbx ----------------
+async function showHome() {
+  $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true; $('#lock').hidden = true;
+  renderSaveState();
+  crumbs('Vaults');
+  toolbar([
+    {icon: '＋', label: 'New vault', do: newVault},
+    {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file (KeePassXC, KeePass, KeeWeb …)', do: () => $('#file').click()},
+    {icon: '↻', label: 'Refresh', do: showHome},
+  ]);
+  try { vaults = (await call('GET', '/api/vaults')).vaults; }
+  catch (e) { $('#home').replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, '⚠'), e.message)); return; }
+  const head = h('div', {class: 'folder-head'},
+    h('div', {}, h('h2', {text: 'Vaults'}),
+      h('div', {class: 'path', text: 'keepass/*.kdbx · KDBX 4, decrypted only in your browser · SSE-KMS at rest · every save versioned'})),
+    h('div', {class: 'spacer'}),
+    h('button', {class: 'btn', onclick: () => $('#file').click()}, '⤒ Upload .kdbx'),
+    h('button', {class: 'btn primary', onclick: newVault}, '＋ New vault'));
+  const body = vaults.length ? h('table', {},
+    h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {})),
+    vaults.map(v => h('tr', {class: 'row'},
+      h('td', {}, h('div', {class: 'vault-name', onclick: () => unlock(v), title: 'Open'}, h('span', {class: 'kdbx'}, '🔐'), v.name)),
+      h('td', {class: 'muted'}, size(v.size)),
+      h('td', {class: 'muted'}, when(v.modified)),
+      h('td', {}, h('div', {class: 'actions'},
+        h('button', {class: 'btn sm primary', onclick: () => unlock(v)}, 'Open'),
+        h('button', {class: 'btn sm', title: 'Download the .kdbx (opens in KeePassXC)', onclick: () => download(v.name)}, '⤓'),
+        h('button', {class: 'btn sm', title: 'Versions', onclick: () => versionsDialog(v)}, '🕘'),
+        h('button', {class: 'btn sm', title: 'Delete', onclick: () => deleteVault(v)}, '🗑')))))) :
+    h('div', {class: 'empty'}, h('div', {class: 'big'}, '🗄'),
+      h('div', {}, 'No vaults yet.'), h('div', {class: 'muted'}, 'Create one, or upload a .kdbx from KeePassXC.'));
+  $('#home').replaceChildren(h('div', {class: 'folder'}, head, body));
+}
+
+function checkName(name) {
+  if (!NAME_RE.test(name)) return 'Name: letters, digits, space, _ - . ( ) — at most 64, not starting with "." or a space';
+  if (vaults.some(v => v.name === name)) return `A vault named "${name}" already exists`;
+  return null;
+}
+
+async function newVault() {
+  let made = null;
+  const r = await ask('New vault', [
+    {name: 'name', label: 'Name', required: true, hint: 'Stored as keepass/<name>.kdbx'},
+    {name: 'pw', label: 'Master password', type: 'password', required: true, generate: true, meter: true, autocomplete: 'new-password'},
+    {name: 'pw2', label: 'Repeat master password', type: 'password', required: true, autocomplete: 'new-password'},
+    {name: 'key', label: 'Key file', type: 'keyfile', hint: KEYFILE_HINT, generate: () => $('dialog[open] input').value.trim()}],
+    {ok: 'Create', busy: 'Encrypting (Argon2id) …', note: 'The master password never leaves this browser. ' +
+       'There is no recovery: if you forget it, the vault cannot be opened.',
+     validate: async v => {
+       const name = v.name.trim();
+       const bad = checkName(name) || (v.pw !== v.pw2 ? 'The passwords do not match' : null);
+       if (bad) return bad;
+       const db = await Vault.create(name, v.pw, v.key);
+       const res = await putVault(name, await Vault.save(db), {'if-none-match': '*'});
+       made = {name, db, etag: res.etag};
+     }});
+  if (r && made) openDb(made);
+}
+
+$('#file').addEventListener('change', async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  const bytes = await file.arrayBuffer();
+  const sig = new Uint8Array(bytes.slice(0, 4));
+  if (sig.length < 4 || sig[0] !== 0x03 || sig[1] !== 0xd9 || sig[2] !== 0xa2 || sig[3] !== 0x9a)
+    return toast(`${file.name} is not a KeePass file`, true);
+  if (bytes.byteLength > MAX_BYTES) return toast('A vault is at most 5 MB', true);
+  const r = await ask('Upload a KeePass file', [
+    {name: 'name', label: 'Vault name', required: true, value: file.name.replace(/\.kdbx$/i, ''), hint: `${file.name} · ${size(bytes.byteLength)}`}],
+    {ok: 'Upload', note: 'Stored as it is (still encrypted); it opens here with its master password (and key file, if it has one).',
+     validate: async v => {
+       const bad = checkName(v.name.trim()); if (bad) return bad;
+       await putVault(v.name.trim(), bytes, {'if-none-match': '*'});
+     }});
+  if (r) { toast(`Uploaded ${r.name.trim()}`); showHome(); }
+});
+
+async function download(name, version) {
+  try {
+    const {bytes} = await call('GET', vaultPath(name) + (version ? '?version=' + encodeURIComponent(version) : ''), {raw: true});
+    saveFile(bytes, `${name}${version ? ' (' + version.slice(0, 8) + ')' : ''}.kdbx`);
+  } catch (e) { toast(e.message, true); }
+}
+function saveFile(bytes, filename) {
+  const a = h('a', {href: URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'})), download: filename});
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+}
+
+async function deleteVault(v) {
+  const r = await ask(`Delete ${v.name}?`, [{name: 'confirm', label: `Type the name (${v.name}) to confirm`, required: true}],
+    {ok: 'Delete vault', danger: true, note: 'It disappears from the list. S3 keeps its older versions (bucket versioning), ' +
+       'so it can still be recovered from the S3 console.',
+     validate: async x => {
+       if (x.confirm !== v.name) return 'The name does not match';
+       await call('DELETE', vaultPath(v.name), {headers: {'if-match': v.etag}});
+     }});
+  if (r) { toast(`Deleted ${v.name}`); showHome(); }
+}
+
+async function versionsDialog(v) {
+  let data;
+  try { data = await call('GET', vaultPath(v.name) + '/versions'); } catch (e) { return toast(e.message, true); }
+  const current = data.versions.find(x => x.latest && !x.deleted), ctl = {};
+  const restore = async x => {
+    if (!(await confirmDlg(`Restore this version of ${v.name}?`, `The version saved ${when(x.modified)} becomes the current one; ` +
+      'the current one stays in the list.', 'Restore'))) return;
+    try {
+      const {bytes} = await call('GET', vaultPath(v.name) + '?version=' + encodeURIComponent(x.version_id), {raw: true});
+      await putVault(v.name, bytes, current ? {'if-match': current.etag} : {'if-none-match': '*'});
+    } catch (e) { return toast(e.message, true); }
+    ctl.close(); toast('Restored'); showHome();
+  };
+  const table = h('table', {},
+    h('tr', {}, h('th', {}, 'Saved'), h('th', {}, 'Size'), h('th', {})),
+    data.versions.map(x => h('tr', {class: 'row'},
+      h('td', {}, when(x.modified), ' ', x.latest && !x.deleted ? h('span', {class: 'tag'}, 'current') : null,
+        x.deleted ? h('span', {class: 'tag'}, 'deleted') : null),
+      h('td', {class: 'muted'}, x.deleted ? '' : size(x.size)),
+      h('td', {}, x.deleted ? null : h('div', {class: 'actions'},
+        h('button', {class: 'btn sm', type: 'button', title: 'Download this version', onclick: () => download(v.name, x.version_id)}, '⤓'),
+        x.latest ? null : h('button', {class: 'btn sm', type: 'button', onclick: () => restore(x)}, 'Restore'))))));
+  await ask(`Versions of ${v.name}`, [{el: h('div', {style: 'max-height:55vh;overflow:auto;margin-top:8px'}, table)}],
+    {ok: false, cancel: 'Close', wide: true, ctl, note: 'Every save is an S3 object version; the bucket keeps the newest ones (lifecycle rule).'});
+}
+
+// ---------------- unlock / lock ----------------
+async function unlock(v) {
+  let file;
+  try { file = await call('GET', vaultPath(v.name), {raw: true}); } catch (e) { return toast(e.message, true); }
+  let db;
+  const r = await ask(`Unlock ${v.name}`, [
+    {name: 'pw', label: 'Master password', type: 'password', autocomplete: 'current-password'},
+    {name: 'key', label: 'Key file', type: 'keyfile', hint: 'Only if this vault uses one. Read in this browser, never uploaded.'}],
+    {ok: 'Unlock', busy: 'Unlocking (Argon2) …', note: `${size(file.bytes.byteLength)} · decrypted in this browser only`,
+     validate: async x => {
+       if (!x.pw && !x.key) return 'Enter the master password (or choose the key file)';
+       try { db = await Vault.open(file.bytes.slice(0), x.pw, x.key); }
+       catch (e) { return e.code === 'InvalidKey' ? 'Wrong master password or key file' : `Cannot open: ${e.message}`; }
+     }});
+  if (r && db) openDb({name: v.name, db, etag: file.etag});
+}
+
+function openDb({name, db, etag}) {
+  S = {name, db, etag, group: db.getDefaultGroup(), entry: null, search: '', open: new Set(), conflict: null, saved: null, error: null};
+  S.open.add(S.group.uuid.id);
+  $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false; $('#lock').hidden = false;
+  $('#search').value = '';
+  lastActive = Date.now();
+  renderVault();
+}
+
+async function lock() {
+  if (!S) return;
+  if (saving) await saving.catch(() => {});
+  if (S.error || S.conflict) {
+    const go = await ask('Lock with an unsaved change?', [], {danger: true, ok: 'Lock and discard',
+      note: 'The last change was not saved to S3. Download your copy first if you want to keep it.',
+      extra: h('button', {type: 'button', class: 'btn', onclick: downloadLocal}, '⤓ Download my copy')});
+    if (!go) return;
+  }
+  S = null;
+  if (clipToken) { clipToken++; clearClipboard(); }
+  showHome();
+}
+$('#lock').addEventListener('click', lock);
+$('#brand').addEventListener('click', () => S ? lock() : showHome());
+
+let lastActive = Date.now();
+for (const ev of ['pointerdown', 'keydown', 'wheel', 'pointermove']) addEventListener(ev, () => lastActive = Date.now(), {passive: true});
+setInterval(() => {
+  if (S && !saving && !dialogOpen() && Date.now() - lastActive > IDLE_LOCK_MIN * 60000) { lock(); toast('Locked after inactivity'); }
+}, 15000);
+
+// ---------------- saving: after every change, conditional on the version this tab read ----------------
+function changed() { renderVault(); save(); }
+function save() {
+  if (!S || S.conflict) return Promise.resolve();
+  if (saving) { saveAgain = true; return saving; }
+  const s = S;
+  saving = (async () => {
+    do {
+      saveAgain = false;
+      renderSaveState('saving …');
+      const bytes = await Vault.save(s.db);
+      try {
+        const r = await putVault(s.name, bytes, {'if-match': s.etag});
+        s.etag = r.etag; s.saved = new Date(); s.error = null;
+      } catch (e) {
+        if (e.status === 412) { s.conflict = bytes; renderVault(); }       // refused: never overwrite another save
+        else { s.error = e.message; toast('Not saved: ' + e.message, true); }
+        return;
+      }
+    } while (saveAgain);
+  })().finally(() => { saving = null; renderSaveState(); });
+  return saving;
+}
+function renderSaveState(text) {
+  const el = $('#savestate');
+  if (!S) { el.textContent = ''; return; }
+  el.className = S.conflict || S.error ? 'err' : 'ok';
+  el.textContent = text || (S.conflict ? '⚠ not saved: changed elsewhere' : S.error ? '⚠ not saved' :
+    S.saved ? `✓ saved ${S.saved.toTimeString().slice(0, 8)}` : '');
+}
+async function downloadLocal() {
+  if (!S) return;
+  saveFile(S.conflict || await Vault.save(S.db), `${S.name} (my copy ${new Date().toISOString().slice(0, 16).replace(':', '')}).kdbx`);
+}
+async function reopen() {
+  const name = S.name; S = null;
+  await showHome();
+  const v = vaults.find(x => x.name === name);
+  if (v) unlock(v);
+}
+
+// ---------------- the open vault ----------------
+function groupPath(g) { const p = []; for (; g; g = g.parentGroup) p.unshift(g.name || ''); return p; }
+function entryCount(g) { let n = 0; for (const _ of g.allEntries()) n++; return n; }
+function visibleEntries() {
+  const q = S.search.trim().toLowerCase();
+  if (!q) return S.group.entries.slice();
+  const out = [];
+  for (const e of S.db.getDefaultGroup().allEntries()) {
+    if (Vault.inRecycleBin(S.db, e)) continue;
+    const f = Vault.fields(e);
+    const hay = [f.title, f.username, f.url, f.notes, ...f.tags, ...f.custom.filter(c => !c.protected).map(c => c.value)].join('\n');
+    if (hay.toLowerCase().includes(q)) out.push(e);
+  }
+  return out;
+}
+
+function renderVault() {
+  if (!S) return;
+  const ro = !!S.conflict, inBin = Vault.inRecycleBin(S.db, S.group);
+  crumbs('Vaults', S.name);
+  toolbar([
+    {icon: '＋', label: 'Entry', title: 'New entry in this group', disabled: ro || inBin, do: () => entryDialog(null)},
+    {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
+    {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)},
+    '|',
+    {icon: '👤', label: 'Copy user', title: 'Copy the user name (⌘B)', disabled: !S.entry, do: () => copyField('username')},
+    {icon: '🔑', label: 'Copy password', title: 'Copy the password (⌘C)', disabled: !S.entry, do: () => copyField('password')},
+    '|',
+    {icon: '🎲', label: 'Generator', do: () => generatorDialog(false)},
+    {icon: '⤓', label: 'Download', title: 'Download this vault as .kdbx (opens in KeePassXC)', do: () => download(S.name)},
+    {icon: '⚙', label: 'Master key', title: 'Change the master password and key file', disabled: ro, do: changeMaster},
+  ]);
+  renderTree(ro); renderList(ro); renderDetail(ro); renderSaveState();
+}
+
+function renderTree(ro) {
+  const bin = Vault.recycleBin(S.db), rootGroup = S.db.getDefaultGroup();
+  const node = (g, depth) => {
+    const kids = g.groups.filter(x => x !== bin).concat(depth === 0 && bin ? [bin] : []);   // the bin last, like KeePassXC
+    const open = S.open.has(g.uuid.id);
+    const row = h('div', {class: 'node' + (g === S.group && !S.search ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
+        onclick: () => { S.group = g; S.entry = null; S.search = ''; $('#search').value = ''; S.open.add(g.uuid.id); renderVault(); },
+        ondblclick: () => { if (!ro && g !== bin && depth > 0) groupDialog(g); }},
+      h('span', {class: 'caret', onclick: e => { e.stopPropagation(); open ? S.open.delete(g.uuid.id) : S.open.add(g.uuid.id); renderVault(); }},
+        kids.length ? (open ? '▾' : '▸') : ''),
+      h('span', {}, g === bin ? '🗑' : depth === 0 ? '🗄' : '📁'),
+      h('span', {class: 'name', text: g.name || '(unnamed)', title: g.name || ''}),
+      h('span', {class: 'count'}, entryCount(g) || ''));
+    return h('li', {}, row, open && kids.length ? h('ul', {}, kids.map(k => node(k, depth + 1))) : null);
+  };
+  const inBin = Vault.inRecycleBin(S.db, S.group), atRoot = S.group === rootGroup;
+  $('#tree').replaceChildren(
+    h('div', {class: 'pane-title'}, 'Groups', h('span', {class: 'spacer'}),
+      h('button', {class: 'icon-btn', title: 'New group inside the selected one', disabled: ro || inBin, onclick: () => groupDialog(null)}, '＋'),
+      h('button', {class: 'icon-btn', title: 'Rename the group', disabled: ro || atRoot || S.group === bin, onclick: () => groupDialog(S.group)}, '✎'),
+      h('button', {class: 'icon-btn', title: 'Delete the group', disabled: ro || atRoot, onclick: () => deleteGroup(S.group)}, '🗑')),
+    h('ul', {}, node(rootGroup, 0)));
+}
+
+function renderList(ro) {
+  const list = visibleEntries(), searching = !!S.search.trim();
+  if (S.entry && !list.includes(S.entry)) S.entry = null;
+  const head = h('div', {class: 'list-head'},
+    h('span', {class: 'title', text: searching ? `Search: ${S.search}` : groupPath(S.group).slice(1).join(' / ') || S.group.name}),
+    h('span', {class: 'muted'}, `${list.length} ${list.length === 1 ? 'entry' : 'entries'}`));
+  const banner = S.conflict ? h('div', {class: 'banner'},
+    h('span', {}, h('b', {}, 'Not saved. '), 'This vault was changed elsewhere (another tab or device) after you opened it. ' +
+      'Nothing was overwritten; your last change exists only in this tab.'),
+    h('button', {class: 'btn sm', onclick: downloadLocal}, '⤓ Download my copy'),
+    h('button', {class: 'btn sm primary', onclick: reopen}, 'Reopen the latest')) : null;
+  const rows = list.map(e => {
+    const f = Vault.fields(e);
+    let host = f.url; try { host = new URL(f.url).host || f.url; } catch (x) {}
+    return h('tr', {class: 'row' + (e === S.entry ? ' sel' : ''), onclick: () => { S.entry = e; renderVault(); },
+        ondblclick: () => { if (!ro) entryDialog(e); }},
+      h('td', {class: 't'}, '🔑 ', f.title || '(no title)'),
+      h('td', {}, f.username),
+      h('td', {class: 'muted'}, host),
+      searching ? h('td', {class: 'muted'}, groupPath(e.parentGroup).slice(1).join(' / ')) : null,
+      h('td', {class: 'muted'}, e.times.lastModTime ? e.times.lastModTime.toLocaleDateString() : ''));
+  });
+  const body = list.length ? h('table', {},
+    h('tr', {}, h('th', {}, 'Title'), h('th', {}, 'User name'), h('th', {}, 'URL'), searching ? h('th', {}, 'Group') : null, h('th', {}, 'Modified')),
+    rows) : h('div', {class: 'empty'}, searching ? 'No match.' : Vault.inRecycleBin(S.db, S.group) ? 'Nothing in here.' :
+      h('div', {}, 'No entries in this group.', ro ? null : h('div', {style: 'margin-top:10px'},
+        h('button', {class: 'btn primary', onclick: () => entryDialog(null)}, '＋ New entry'))));
+  $('#list').replaceChildren(...[head, banner, h('div', {class: 'list-body'}, body)].filter(Boolean));
+}
+
+function renderDetail(ro) {
+  const e = S.entry, el = $('#detail');
+  if (!e) { el.replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, '🔐'), 'Select an entry')); return; }
+  const f = Vault.fields(e), dots = v => '•'.repeat(Math.min(16, v.length));
+  const secret = (label, value) => {
+    const val = h('span', {class: 'val pw', text: dots(value)});
+    let shown = false;
+    return h('div', {class: 'field'}, h('div', {class: 'k', text: label}), h('div', {class: 'v'}, val,
+      value ? h('button', {class: 'icon-btn', title: 'Show / hide', onclick: () => { shown = !shown; val.textContent = shown ? value : dots(value); }}, '👁') : null,
+      value ? h('button', {class: 'icon-btn', title: 'Copy', onclick: () => copy(value, label)}, '⧉') : null));
+  };
+  const plain = (label, value, link) => !value ? null : h('div', {class: 'field'}, h('div', {class: 'k', text: label}), h('div', {class: 'v'},
+    link && /^https?:\/\//i.test(value) ? h('a', {class: 'val', href: value, target: '_blank', rel: 'noopener noreferrer', text: value})
+                                        : h('span', {class: 'val', text: value}),
+    h('button', {class: 'icon-btn', title: 'Copy', onclick: () => copy(value, label)}, '⧉')));
+  const t = e.times, forever = Vault.inRecycleBin(S.db, e);
+  el.replaceChildren(...[
+    h('div', {class: 'd-title', text: f.title || '(no title)'}),
+    h('div', {class: 'd-path', text: groupPath(e.parentGroup).join(' / ')}),
+    plain('User name', f.username),
+    secret('Password', f.password),
+    plain('URL', f.url, true),
+    f.notes ? h('div', {class: 'field'}, h('div', {class: 'k'}, 'Notes'), h('pre', {text: f.notes})) : null,
+    ...f.custom.map(c => c.protected ? secret(c.name, c.value) : plain(c.name, c.value)),
+    f.tags.length ? h('div', {class: 'field'}, h('div', {class: 'k'}, 'Tags'), h('div', {}, f.tags.map(x => h('span', {class: 'tag', text: x})))) : null,
+    ro ? null : h('div', {class: 'd-actions'},
+      h('button', {class: 'btn primary', onclick: () => entryDialog(e)}, '✎ Edit'),
+      h('button', {class: 'btn', onclick: () => deleteEntry(e)}, forever ? 'Delete forever' : '🗑 Delete')),
+    h('div', {class: 'd-meta'},
+      h('div', {}, `Modified ${t.lastModTime ? t.lastModTime.toLocaleString() : '—'}`),
+      h('div', {}, `Created ${t.creationTime ? t.creationTime.toLocaleString() : '—'}`),
+      e.history.length ? h('div', {}, `History: ${e.history.length} earlier version${e.history.length > 1 ? 's' : ''}`) : null,
+      e.binaries.size ? h('div', {}, `Attachments: ${[...e.binaries.keys()].join(', ')} (kept; open them in KeePassXC)`) : null),
+  ].filter(Boolean));
+}
+
+// ---------------- editing: every change is saved at once ----------------
+async function entryDialog(entry) {
+  const f = entry ? Vault.fields(entry) : {title: '', username: '', password: generate(genOpts()), url: '', notes: '', tags: [], custom: []};
+  const customBox = h('div', {}), rows = [];
+  const addRow = c => {
+    const name = h('input', {type: 'text', value: c.name, placeholder: 'name'});
+    const value = h('input', {type: c.protected ? 'password' : 'text', value: c.value, placeholder: 'value', class: 'mono'});
+    const prot = h('input', {type: 'checkbox', checked: c.protected});
+    prot.addEventListener('change', () => value.type = prot.checked ? 'password' : 'text');
+    const r = {name, value, prot};
+    const row = h('div', {class: 'custom-row'}, name, value, h('label', {title: 'Protected (hidden, like a password)'}, prot, ' 🔒'),
+      h('button', {type: 'button', class: 'icon-btn', title: 'Remove', onclick: () => { row.remove(); rows.splice(rows.indexOf(r), 1); }}, '✕'));
+    rows.push(r); customBox.append(row);
+  };
+  f.custom.forEach(addRow);
+  const customEl = h('div', {class: 'f'}, h('label', {}, 'Additional attributes'), customBox,
+    h('button', {type: 'button', class: 'btn sm', style: 'margin-top:6px', onclick: () => addRow({name: '', value: '', protected: false})}, '＋ Attribute'));
+  const r = await ask(entry ? 'Edit entry' : 'New entry', [
+    {name: 'title', label: 'Title', value: f.title, required: true},
+    {name: 'username', label: 'User name', value: f.username},
+    {name: 'password', label: 'Password', type: 'password', value: f.password, generate: true, meter: true, autocomplete: 'new-password'},
+    {name: 'url', label: 'URL', value: f.url},
+    {name: 'notes', label: 'Notes', type: 'textarea', value: f.notes},
+    {name: 'tags', label: 'Tags', value: f.tags.join(', '), hint: 'comma separated'},
+    {el: customEl}],
+    {ok: entry ? 'Save' : 'Add', wide: true, note: 'In ' + groupPath(entry ? entry.parentGroup : S.group).join(' / '),
+     validate: () => {
+       const names = rows.map(x => x.name.value.trim()).filter(Boolean);
+       if (names.some(n => ['Title', 'UserName', 'Password', 'URL', 'Notes'].includes(n))) return 'An attribute cannot use a standard field name';
+       if (new Set(names).size !== names.length) return 'Two attributes have the same name';
+       return null;
+     }});
+  if (!r || !S || S.conflict) return;
+  const values = {title: r.title.trim(), username: r.username, password: r.password, url: r.url.trim(), notes: r.notes,
+    tags: r.tags.split(/[,;]/).map(x => x.trim()).filter(Boolean),
+    custom: rows.filter(x => x.name.value.trim()).map(x => ({name: x.name.value.trim(), value: x.value.value, protected: x.prot.checked}))};
+  if (entry) Vault.editEntry(entry, values);
+  else S.entry = Vault.addEntry(S.db, S.group, values);
+  changed();
+}
+
+async function deleteEntry(e) {
+  const f = Vault.fields(e), forever = Vault.inRecycleBin(S.db, e);
+  if (forever && !(await confirmDlg(`Delete "${f.title}" forever?`, 'It is removed from the vault (earlier S3 versions of the file still have it).'))) return;
+  Vault.remove(S.db, e);
+  S.entry = null;
+  if (!forever) toast(`Moved "${f.title}" to the recycle bin`);
+  changed();
+}
+
+async function groupDialog(group) {
+  const r = await ask(group ? 'Rename group' : 'New group', [{name: 'name', label: 'Name', value: group ? group.name : '', required: true}],
+    {ok: group ? 'Rename' : 'Create', note: group ? null : 'Inside ' + groupPath(S.group).join(' / ')});
+  if (!r || !S || S.conflict) return;
+  if (group) Vault.renameGroup(group, r.name.trim());
+  else { S.open.add(S.group.uuid.id); S.group = Vault.addGroup(S.db, S.group, r.name.trim()); S.entry = null; }
+  changed();
+}
+
+async function deleteGroup(g) {
+  const forever = Vault.inRecycleBin(S.db, g), n = entryCount(g);
+  if (!(await confirmDlg(`Delete group "${g.name}"?`, forever ? `It and its ${n} entries are removed from the vault.` :
+    `It moves to the recycle bin with its ${n} entries.`))) return;
+  Vault.remove(S.db, g);
+  S.group = S.db.getDefaultGroup(); S.entry = null;
+  changed();
+}
+
+async function changeMaster() {
+  let done = false;
+  await ask('Change master key', [
+    {name: 'pw', label: 'New master password', type: 'password', required: true, generate: true, meter: true, autocomplete: 'new-password'},
+    {name: 'pw2', label: 'Repeat', type: 'password', required: true, autocomplete: 'new-password'},
+    {name: 'key', label: 'Key file', type: 'keyfile', hint: 'None = password only. ' + KEYFILE_HINT, generate: () => S.name}],
+    {ok: 'Change', note: 'The vault is saved with the new master key right away. Earlier S3 versions keep the old one.',
+     validate: async v => {
+       if (v.pw !== v.pw2) return 'The passwords do not match';
+       await Vault.setMasterKey(S.db, v.pw, v.key); done = true;
+     }});
+  if (done) { await save(); if (S && !S.conflict && !S.error) toast('Master key changed'); }
+}
+
+function copyField(which) {
+  if (!S || !S.entry) return;
+  const f = Vault.fields(S.entry);
+  copy(which === 'password' ? f.password : f.username, which === 'password' ? 'Password' : 'User name');
+}
+
+$('#search').addEventListener('input', e => { if (S) { S.search = e.target.value; renderVault(); } });
+
+// keyboard, as in KeePassXC: ⌘F search, ⌘B copy user, ⌘C copy password, ⌘L lock, ↑/↓ move, Enter edit, Del delete
+document.addEventListener('keydown', e => {
+  if (!S || dialogOpen()) return;
+  const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+  const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement.tagName);
+  if (mod && k === 'f') { e.preventDefault(); $('#search').focus(); $('#search').select(); }
+  else if (mod && k === 'l') { e.preventDefault(); lock(); }
+  else if (mod && k === 'b' && S.entry) { e.preventDefault(); copyField('username'); }
+  else if (mod && k === 'c' && S.entry && !typing && !String(getSelection())) { e.preventDefault(); copyField('password'); }
+  else if (e.key === 'Escape' && document.activeElement === $('#search')) { $('#search').value = ''; S.search = ''; $('#search').blur(); renderVault(); }
+  else if (typing || mod) return;
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const list = visibleEntries(); if (!list.length) return;
+    e.preventDefault();
+    const i = list.indexOf(S.entry);
+    S.entry = list[Math.max(0, Math.min(list.length - 1, i + (e.key === 'ArrowDown' ? 1 : -1)))]; renderVault();
+  }
+  else if (e.key === 'Enter' && S.entry && !S.conflict) entryDialog(S.entry);
+  else if ((e.key === 'Delete' || e.key === 'Backspace') && S.entry && !S.conflict) deleteEntry(S.entry);
+});
+addEventListener('beforeunload', e => { if (S && (saving || S.error || S.conflict)) { e.preventDefault(); e.returnValue = ''; } });
+
+showHome();
 </script>
 </body>
 </html>

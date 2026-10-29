@@ -1,86 +1,84 @@
-# <project> — a truly serverless <replaces>
+# s3keepass — your KeePass vaults on S3, opened in a web UI
 
-<!-- template: replace every <placeholder>, keep the section order (it is the series standard, see SERIES.md) -->
-
-> **<replaces>** bills while idle. **<project>** does the same job on **<built on>** and costs ≈ $0 when nothing happens.
-> Same client API; when you outgrow it, go back to the real service by changing one import line.
+> A password manager you own: every vault is a standard **KeePass file (`.kdbx`)** in **your S3 bucket**, opened
+> in a **web UI** served by a Lambda Function URL. Decryption happens in your browser; the server only ever
+> moves ciphertext. ≈ $0 when idle, and KeePassXC still opens the same file.
 
 [中文](README.zh.md) · [compatibility report](tests/compat/REPORT.md) · [tasks](tests/compat/TASKS.md) · [changelog](CHANGELOG.md)
 
 ![architecture](docs/architecture.svg)
 
-| | <replaces> | <project> |
+## The switch
+
+| | Before | s3keepass |
 |---|---|---|
-| Idle cost / month | <idle cost> | ≈ $0 |
-| Endpoint | <host:port> | Lambda Function URL |
-| Storage | <storage> | <built on> |
-| Client | `import <client>` | `from <project> import <client>` |
-| Console | <their console> | built-in web console (Lambda URL) |
-| Client compatibility | — | [<n>% of <m> features](tests/compat/REPORT.md) |
+| Open your passwords | start KeePassXC, find the file (Dropbox / iCloud / USB stick) | open one URL, in any browser |
+| Where the file lives | a synced folder, or the vendor's cloud (1Password, Bitwarden, LastPass) | your S3 bucket: `keepass/<vault>.kdbx`, as many vaults as you like |
+| File format | `.kdbx` (KeePass) / proprietary (hosted managers) | `.kdbx` KDBX 4 — KeePassXC and mobile KeePass apps open it as is |
+| Who can decrypt | you (KeePass) / you, through the vendor's client | you: the master password never leaves the browser |
+| Two devices save at once | sync conflict copies (`… (conflicted copy).kdbx`) | the second save is refused (S3 `If-Match`), nothing overwritten |
+| History | whatever the sync service keeps | every save is an S3 version; restore one from the UI |
+| Cost | $0 + a sync service / $3–8 per user per month | ≈ $0 when idle (Lambda + S3 requests, a few KB stored) |
 
-## Why
-
-<two or three sentences: what the real service costs idle, what this is built on, who it is for>
+The UI works like KeePassXC's window: the vault list is a folder → unlock with the master password → group tree
+on the left, entries in the middle, the entry's details on the right. Copy user name / password (the clipboard
+is cleared after 30 s), reveal, add / edit / delete entries and groups (deleted items go to the recycle bin),
+password generator, change the master key (password + optional key file), create a vault, upload an existing `.kdbx`, download one, lock
+(also after 5 minutes idle). Keyboard: ⌘F search, ⌘B copy user, ⌘C copy password, ⌘L lock, ↑/↓, Enter, Del.
 
 ## How it works
 
-<one paragraph + the architecture image above. Name the AWS primitives and what each one holds.>
+One Lambda behind a Function URL serves the page (`index.html`, no build step, no external request) and a small
+API over one S3 prefix: list `keepass/*.kdbx`, get a file, save it **only if it is still the version you opened**
+(`PUT` with `If-Match: <ETag>`; a new vault with `If-None-Match: *`), list and fetch older versions, delete.
+The browser decrypts and encrypts with **kdbxweb** (KeeWeb's KDBX library) and **argon2-browser** (the Argon2
+reference code as WASM), vendored and pinned in [src/server/vendor/](src/server/vendor/README.md) — no
+hand-written crypto. New vaults are KDBX 4, AES-256, Argon2id 64 MiB × 8. The master key is the password plus an
+optional **key file**, as in KeePass: a KeePassXC `.keyx` / `.key`, one the UI generates, or any file — picked in
+the browser for each unlock and never uploaded.
+
+The bucket is private, TLS-only, versioned (the newest `keep_versions` old versions per vault are kept), and
+encrypted at rest with SSE-KMS under the AWS-managed `aws/s3` key. The UI sits behind HTTP Basic (user /
+password from your variable file); each vault then needs its own master password.
 
 ## Quick start
 
-### 1. Deploy
-
-**Terraform**
+### 1. Deploy once
 
 ```bash
-cp terraform/example.json terraform/my.json      # set aws_profile, env, user, password
+cp terraform/example.json terraform/s3keepass.json     # set aws_profile, user, password
 terraform -chdir=terraform init
-terraform -chdir=terraform apply -var-file=my.json
-terraform -chdir=terraform output                 # console_url
-terraform -chdir=terraform destroy -var-file=my.json   # tear everything down
+terraform -chdir=terraform apply -var-file=s3keepass.json
+terraform -chdir=terraform output                      # console_url, bucket
 ```
 
-**CloudFormation** (AWS CLI only; optional, from <version> — delete this block until it exists)
+`terraform -chdir=terraform destroy -var-file=s3keepass.json` removes everything, but stops at a bucket that
+still holds vaults unless you set `"force_destroy": true` — download what you want to keep first.
 
-```bash
-cp cloudformation/example-params.json cloudformation/params.json
-aws cloudformation package --template-file cloudformation/template.yaml \
-    --s3-bucket <any-bucket-you-own> --output-template-file /tmp/<project>.yaml
-aws cloudformation deploy --template-file /tmp/<project>.yaml --stack-name <project> \
-    --capabilities CAPABILITY_IAM --parameter-overrides file://cloudformation/params.json
-```
+### 2. Open the URL
 
-### 2. Open the console
-
-Open `console_url` in a browser, sign in with `user` / `password`. <what the console shows and does>.
-
-### 3. Connect from code
-
-```bash
-pip install <project>
-```
-
-```python
-from <project> import <client>        # later: `import <client>` against the real service, nothing else changes
-
-<five-line example of the standard client's API>
-```
+Open `console_url`, sign in with `user` / `password`, create a vault (or upload a `.kdbx` from KeePassXC), and
+bookmark the page. On a new device: the same URL, nothing to install. Offline or without the URL: download the
+`.kdbx` and open it in KeePassXC.
 
 ## Compatibility
 
-[tests/compat/REPORT.md](tests/compat/REPORT.md) is regenerated by every test run: the same operations run on the
-real <replaces> (Docker) and on <project>, comparing results, types and errors.
+[tests/compat/REPORT.md](tests/compat/REPORT.md) is regenerated by every test run. The reference is **KeePassXC's
+`keepassxc-cli` in Docker**: every vault file s3keepass writes must open in keepassxc-cli with the same groups and
+entries, and every file keepassxc-cli writes must open in s3keepass. The s3keepass side is the UI's own crypto
+code (`index.html`'s `vault-core` block and the vendored libraries) run headless in Node; each file is read by
+both sides and the readings must match.
 
 | Status | Meaning |
 |---|---|
-| ✅ verified | identical to the reference; safe to rely on |
+| ✅ verified | identical to KeePassXC; safe to rely on |
 | ❌ gap | known difference; the note names the task in [TASKS.md](tests/compat/TASKS.md) that closes it |
-| ⚪ quirk | documented behaviour of the real service we deliberately do not imitate |
-| ⛔ unsupported | refused with `NotSupportedError` — never silently different |
+| ⚪ quirk | documented difference we deliberately keep |
+| ⛔ unsupported | refused cleanly — never half-opened |
 
 ```bash
-python3 -m pytest tests -q                 # leaves Docker alone: live if <replaces> is running, else <the fallback>
-python3 -m pytest tests -q --docker up     # starts <replaces> in Docker, waits until healthy, tests; keeps it running
+python3 -m pytest tests -q                 # leaves Docker alone: live if the keepassxc container runs, else those tests are skipped
+python3 -m pytest tests -q --docker up     # builds/starts it, waits until healthy, tests; keeps it running
 python3 -m pytest tests -q --docker run    # the same, then stops it if all passed (on a failure it keeps running)
 python3 -m pytest tests -q --docker down   # the same, then stops it whatever the result
 ```
@@ -89,30 +87,33 @@ python3 -m pytest tests -q --docker down   # the same, then stops it whatever th
 
 | | How |
 |---|---|
-| **Atomicity** | <...> |
-| **Durability** | <...> |
-| **Isolation** | <...> |
-| **Availability** | Lambda / <built on> are regional, multi-AZ services: no instance to fail, no maintenance window |
+| **Confidentiality** | the master password and decrypted entries exist only in the browser tab; the Lambda and S3 see KDBX ciphertext (and S3 adds SSE-KMS). A strict Content-Security-Policy runs only this page's scripts, so text inside a vault can never run as code. Pinned by `test_server.py` and `tests/compat/` |
+| **No lost update** | a save is `PUT If-Match <the ETag this tab opened>`; if another tab or device saved first the save is refused (412), the UI says so and offers your copy as a download. Unconditional saves are refused (428). `test_stale_save_is_refused_never_overwritten` |
+| **Durability** | a save returns only after S3 stored it (11 nines); every save is a new object version, so a bad save or a delete is undone from the Versions dialog |
+| **Portability** | a vault is a standard KDBX 4 file; download it and KeePassXC opens it (`tests/compat/`) |
+| **Availability** | Lambda and S3 are regional, multi-AZ services: no instance to fail, no maintenance window |
 
 ## Who this is for
 
-<the fit: what code patterns work, what does not, and that the "does not" is the moment to move to <replaces> — see MIGRATION.md>
+One person or a family who wants KeePass's model (your file, your password, no vendor) without carrying the file
+around, and who already has an AWS account. Not for: teams that need sharing, per-user permissions or audit
+(use a team password manager), hardware-key unlock (YubiKey challenge-response), or browser autofill (0.1.0
+copies to the clipboard). Leaving is a download: see [MIGRATION.md](MIGRATION.md).
 
 ## Repository layout
 
 ```
-src/server/       the service: lambda_function.py (HTTP API + console), index.html
-client/           the pip package <project>: <project>/<client>.py, pyproject.toml
-terraform/        deployment, option A
-cloudformation/   deployment, option B (optional, after 0.1.0)
-tests/            regression suite; tests/compat/ compatibility suite, REPORT.md, TASKS.md
+src/server/       the service: lambda_function.py (vault API), index.html (the UI), vendor/ (kdbxweb, argon2)
+client/           the pip package s3keepass (0.1.0: the version only; the command line comes in 0.2.0)
+terraform/        deployment: S3 bucket, Lambda + Function URL, IAM
+tests/            regression suite (fake S3); tests/compat/ vs KeePassXC, REPORT.md, TASKS.md
 ```
 
 ## Releasing
 
-CI runs the whole suite on every push. A release is a tag: bump the version in `client/pyproject.toml` and
-`client/<project>/__init__.py`, add the CHANGELOG entry, commit, then `git tag vX.Y.Z && git push --tags`
-(tests → build → PyPI trusted publishing; the tag must equal the version).
+CI runs the whole suite on every push (with the keepassxc container). A release is a tag: bump the version in
+`client/pyproject.toml` and `client/s3keepass/__init__.py`, add the CHANGELOG entry, commit, then
+`git tag vX.Y.Z && git push --tags` (tests → build → PyPI; the tag must equal the version).
 
 ---
 

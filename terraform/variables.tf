@@ -31,10 +31,34 @@ variable "env" {
 variable "name" {
   description = "Project name; resources are <name>-lambda, <name>-lambda-role"
   type        = string
-  default     = "<project>"
+  default     = "s3keepass"
 }
 
-# ---- the service's credentials (HTTP Basic on the Function URL) ----
+# ---- the vaults' bucket ----
+variable "bucket" {
+  description = "S3 bucket for the vaults; \"\" = <name>-<env>-<account id>"
+  type        = string
+  default     = ""
+}
+
+variable "keep_versions" {
+  description = "Older versions kept per vault (every save is one); older ones are deleted after a day"
+  type        = number
+  default     = 100
+
+  validation {
+    condition     = var.keep_versions >= 1 && var.keep_versions <= 100
+    error_message = "keep_versions must be 1..100 (the S3 lifecycle limit for newer noncurrent versions)."
+  }
+}
+
+variable "force_destroy" {
+  description = "true lets `terraform destroy` delete the bucket with every vault and version in it"
+  type        = bool
+  default     = false
+}
+
+# ---- the web UI's sign-in (HTTP Basic on the Function URL); each vault also has its own master password ----
 variable "user" {
   type = string
 }
@@ -49,7 +73,7 @@ variable "endpoint_auth" {
   description = <<-EOT
     How the Function URL is protected:
       NONE    = public URL; only user/password (HTTP Basic) is checked      <- default
-      AWS_IAM = AWS checks a SigV4 signature + IAM permission first. The browser console
+      AWS_IAM = AWS checks a SigV4 signature + IAM permission first. The browser UI
                 cannot sign requests, so it is unusable in this mode.
   EOT
   type        = string
@@ -73,7 +97,7 @@ variable "architecture" {
 }
 
 variable "console" {
-  description = "Serve the built-in web console at GET /. false = API only."
+  description = "Serve the web UI at GET /. false = API only (the UI is how vaults are opened in 0.1.0)."
   type        = bool
   default     = true
 }

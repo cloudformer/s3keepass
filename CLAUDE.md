@@ -1,8 +1,47 @@
-# <project> — working notes for Claude
+# s3keepass — working notes for Claude
 
 This repository is one project of the **Redefine AWS Serverless** series (SERIES.md): an AWS service that
 bills while idle, rebuilt on primitives that cost ≈ $0 when idle, behind the standard client's API.
 s3rds (github.com/cloudformer/s3rds) is the reference implementation; when in doubt, do what it does.
+
+## s3keepass: what differs from the series template (overrides the principles below where they conflict)
+
+s3keepass is **app-serverless** (next to lambdavault and lambdachecks): KeePass — a desktop app and its file —
+rebuilt as a serverless web vault, not an AWS service behind its standard client. It is Frank's own daily
+password manager. Goal of 0.1.0 (settled 2026-10-29): it replaces Frank's local KeePass client and where the
+file is kept — he opens the URL instead of KeePassXC, and the vaults live in S3 instead of on his disk.
+
+- **Storage**: one bucket, `keepass/<name>.kdbx`, any number of vaults (库1, 库2 …); one S3 key = one vault, like
+  s3rds' one key = one database. Bucket: private, TLS-only, versioned (lifecycle keeps `keep_versions` old
+  versions per vault, max 100), SSE-KMS with the AWS-managed `aws/s3` key (a customer key may come later).
+- **The browser decrypts.** The Lambda only lists / reads / writes / deletes encrypted bytes; the master password
+  and plaintext never leave the browser (as KeeWeb). KDBX 4 via vendored kdbxweb + argon2-browser in
+  `src/server/vendor/` (pinned by SHA-256 in its README, checked by a test) — never hand-written crypto. All
+  crypto calls go through the `vault-core` `<script>` block of `index.html`; nothing else touches kdbxweb.
+- **Saves are conditional**: `PUT If-Match <ETag read>` (create: `If-None-Match: *`); unconditional PUT is 428.
+  A refused save (412) never overwrites: the UI offers the local copy as a download and a reopen.
+- **UI** (principle 6 adapted): modelled on KeePassXC's window — vault list (the "folder") → unlock → group tree |
+  entries | details; copy (clipboard cleared after 30 s), reveal, add / edit / delete entries and groups
+  (recycle bin), generator, new vault, upload / download `.kdbx`, versions, change master password, lock (also
+  idle). No command box (there is no native command language); search instead. The status bar + history show
+  each call's server time and S3 action. Strict CSP: inline scripts by hash (computed by the Lambda), so the
+  page must use `<script>` blocks without attributes and no inline event handlers.
+- **Sign-in**: HTTP Basic, user / password from the Terraform variable file named after the project:
+  `terraform/s3keepass.json` (gitignored; `example.json` committed).
+- **Master key = password + optional key file**, as in KeePass (KeePassXC `.keyx` / `.key`, a generated `.keyx`, any
+  file by SHA-256 — vault-core `keyMaterial` hashes XML that is not a key file, as KeePassXC does). The key file is
+  read in the browser and never uploaded. "No key file" in the kickoff meant no KMS / customer key encrypting the
+  .kdbx itself (S3's SSE-KMS with `aws/s3` is all), not the KeePass key-file feature. **Command line in 0.2.0** (`s3keepass entry get
+  github` …, designed 2026-10-28); in 0.1.0 `client/` holds only the version.
+- **Testing (principle 5 for this project)**: the reference is KeePassXC's `keepassxc-cli` in Docker (compose
+  service `keepassxc`, container `s3keepass-keepassxc`, env `KEEPASSXC_CONTAINER`). The same container runs
+  `tests/compat/kdbx_node.js`, which loads the vendored libraries and the `vault-core` block into Node — the UI's
+  own crypto path, headless. Every file one side writes is read by both and the readings must match. The server
+  is tested in-process against the fake S3 in `tests/conftest.py` (versions, conditional PUT, delete markers).
+- PyPI name and github.com/cloudformer/s3keepass were free on 2026-10-29; reserve with
+  `python3 ~/repo-private/redefine-aws-serverless-workflow/scripts/reserve_pypi.py s3keepass --upload` when Frank says.
+- Frank's commands use absolute paths: `git -C /Users/frankzhang/repo-private/s3keepass …`,
+  `terraform -chdir=/Users/frankzhang/repo-private/s3keepass/terraform … -var-file=s3keepass.json`.
 
 ## Product principles
 

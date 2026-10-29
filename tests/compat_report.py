@@ -15,18 +15,35 @@ import platform
 import re
 
 CONFIG = {
-    "title": "<project> compatibility report",
+    "title": "s3keepass compatibility report",
     "report": os.path.join(os.path.dirname(__file__), "compat", "REPORT.md"),
     # (key, section title, substring of the test file name, reference description or callable)
     "suites": [
-        ("reference", "<project>.<client> vs <replaces>", "test_reference",
-         lambda: versions.get("reference") or "<replaces> (not run)"),
+        ("keepassxc", "s3keepass vault files vs KeePassXC", "test_keepassxc",
+         lambda: versions.get("reference") or "KeePassXC (not run)"),
     ],
     "version": lambda: os.environ["PACKAGE"] + " " + __import__(os.environ["PACKAGE"]).__version__,
-    "categories": ["Basics", "Data", "Queries", "Errors", "Metadata", "Unsupported", "General"],
-    # Optional "Test scope" table at the top of REPORT.md: which test covers which business step.
+    "categories": ["Data", "Errors", "Metadata", "Unsupported", "General"],
+    # "Test scope" table at the top of REPORT.md: the 0.1.0 acceptance steps and what checks each.
     # (business step, how it is tested, ["file.py::test_name", ...], still to do or None); status is computed.
-    # "scope": [("1. <step>", "<how>", ["test_server.py::test_routes_errors_and_timing"], None)],
+    "scope": [
+        ("1. terraform apply → the UI opens at the Function URL (Basic auth)", "in-process Lambda",
+         ["test_server.py::test_ui_and_vendor_are_public_and_the_api_needs_auth",
+          "test_server.py::test_csp_runs_only_this_pages_scripts"], "Frank: terraform apply, open the URL"),
+        ("2. Create 库1, groups and entries, lock, reopen; 库2 listed too", "in-process Lambda + the UI's vault code vs keepassxc-cli",
+         ["test_server.py::test_create_list_and_open_vaults",
+          "test_keepassxc.py::test_vault_created_in_s3keepass_opens_in_keepassxc"], "Frank: in the browser"),
+        ("3. Download 库1 → KeePassXC opens it; a KeePassXC .kdbx opens in the UI", "keepassxc-cli in Docker",
+         ["test_keepassxc.py::test_vault_created_in_s3keepass_opens_in_keepassxc",
+          "test_keepassxc.py::test_vault_created_in_keepassxc_opens_in_s3keepass",
+          "test_keepassxc.py::test_edits_in_s3keepass_are_seen_by_keepassxc",
+          "test_keepassxc.py::test_edits_in_keepassxc_are_seen_by_s3keepass"], "Frank: with the desktop KeePassXC"),
+        ("4. Two tabs edit the same vault → the second save is refused", "in-process Lambda, fake S3 (If-Match)",
+         ["test_server.py::test_stale_save_is_refused_never_overwritten",
+          "test_server.py::test_unconditional_save_is_refused"], "Frank: two tabs on the deployed URL"),
+        ("5. keepass/ holds only .kdbx ciphertext, SSE-KMS on each object", "in-process Lambda, fake S3",
+         ["test_server.py::test_saves_are_sse_kms_ciphertext"], "Frank: S3 console"),
+    ],
 }
 
 features = {}   # nodeid -> {"suite", "feature", "gap", "unsupported", "quirk", "fail"}

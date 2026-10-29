@@ -10,6 +10,9 @@
     <linearGradient id="gConsole" x1="0" y1="0" x2="1" y2="1">
       <stop offset="0" stop-color="#8C4FFF"/><stop offset="1" stop-color="#5B3BC8"/>
     </linearGradient>
+    <linearGradient id="gKms" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#E7157B"/><stop offset="1" stop-color="#A3124F"/>
+    </linearGradient>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
       <path d="M0,0 L10,5 L0,10 z" fill="#CBD5E1"/>
     </marker>
@@ -28,116 +31,97 @@
 
   <rect width="1100" height="560" rx="18" fill="#0F172A"/>
 
-  <!-- ====================== Compute ====================== -->
-  <rect x="40" y="56" width="260" height="330" rx="10" class="group" stroke-dasharray="6 5"/>
-  <text x="170" y="84" text-anchor="middle" class="gtitle">Compute</text>
+  <!-- ====================== your devices ====================== -->
+  <rect x="30" y="56" width="270" height="420" rx="10" class="group" stroke-dasharray="6 5"/>
+  <text x="165" y="84" text-anchor="middle" class="gtitle">Your devices</text>
 
-  <!-- EC2 -->
-  <g transform="translate(78,108)">
-    <rect width="70" height="70" rx="9" fill="url(#gCompute)"/>
-    <rect x="20" y="20" width="30" height="30" rx="3" class="glyph"/>
-    <path d="M27 20v-7 M35 20v-7 M43 20v-7 M27 50v7 M35 50v7 M43 50v7 M20 27h-7 M20 35h-7 M20 43h-7 M50 27h7 M50 35h7 M50 43h7" class="glyph" stroke-width="2"/>
-    <text x="35" y="90" text-anchor="middle" class="label">EC2</text>
+  <!-- browser: the s3keepass UI -->
+  <g transform="translate(122,108)">
+    <rect width="86" height="86" rx="10" fill="url(#gConsole)"/>
+    <rect x="13" y="16" width="60" height="8" rx="2" fill="#FFFFFF" opacity="0.95"/>
+    <rect x="13" y="29" width="18" height="42" rx="3" fill="#FFFFFF" opacity="0.35"/>
+    <rect x="34" y="29" width="39" height="42" rx="3" fill="#FFFFFF" opacity="0.22"/>
+    <rect x="38" y="35" width="31" height="4.5" rx="2" fill="#FFFFFF"/>
+    <rect x="38" y="44" width="31" height="4.5" rx="2" fill="#FFFFFF" opacity="0.7"/>
+    <rect x="38" y="53" width="31" height="4.5" rx="2" fill="#FFFFFF" opacity="0.7"/>
+    <text x="43" y="108" text-anchor="middle" class="label">Browser: s3keepass UI</text>
+    <text x="43" y="124" text-anchor="middle" class="sub">groups · entries · generator</text>
   </g>
-  <!-- ECS -->
-  <g transform="translate(192,108)">
-    <rect width="70" height="70" rx="9" fill="url(#gCompute)"/>
-    <path d="M35 12 L55 23.5 V46.5 L35 58 L15 46.5 V23.5 Z" class="glyph"/>
-    <rect x="26" y="29" width="8" height="8" fill="#FFFFFF"/><rect x="36" y="29" width="8" height="8" fill="#FFFFFF"/>
-    <rect x="26" y="39" width="8" height="8" fill="#FFFFFF"/><rect x="36" y="39" width="8" height="8" fill="#FFFFFF"/>
-    <text x="35" y="90" text-anchor="middle" class="label">ECS</text>
-  </g>
-  <!-- EKS -->
-  <g transform="translate(78,226)">
-    <rect width="70" height="70" rx="9" fill="url(#gCompute)"/>
-    <path d="M35 12 L55 23.5 V46.5 L35 58 L15 46.5 V23.5 Z" class="glyph"/>
-    <circle cx="35" cy="35" r="9" class="glyph"/>
-    <path d="M35 26v-6 M35 44v6 M26 35h-6 M44 35h6" class="glyph" stroke-width="2"/>
-    <text x="35" y="90" text-anchor="middle" class="label">EKS</text>
-  </g>
-  <!-- Lambda -->
-  <g transform="translate(192,226)">
-    <rect width="70" height="70" rx="9" fill="url(#gCompute)"/>
-    <text x="35" y="50" text-anchor="middle" font-size="40" font-weight="700" fill="#FFFFFF">λ</text>
-    <text x="35" y="90" text-anchor="middle" class="label">Lambda</text>
+  <rect x="58" y="252" width="22" height="22" rx="4" class="callout"/><text x="69" y="268" text-anchor="middle" class="callout-text">2</text>
+  <text x="88" y="262" class="step">master password + decryption</text>
+  <text x="88" y="277" class="step">stay in the browser (KDBX 4:</text>
+  <text x="88" y="292" class="step">Argon2id + AES-256, kdbxweb)</text>
+
+  <!-- KeePassXC / mobile -->
+  <g transform="translate(122,330)">
+    <rect width="86" height="86" rx="10" fill="#334155"/>
+    <rect x="22" y="34" width="42" height="34" rx="5" class="glyph"/>
+    <path d="M31 34 v-8 a12 12 0 0 1 24 0 v8" class="glyph"/>
+    <circle cx="43" cy="49" r="4" fill="#FFFFFF"/><path d="M43 52 v7" class="glyph" stroke-width="2.4"/>
+    <text x="43" y="108" text-anchor="middle" class="label">KeePassXC · mobile apps</text>
+    <text x="43" y="124" text-anchor="middle" class="sub">open the same .kdbx (download)</text>
   </g>
 
-  <text x="170" y="350" text-anchor="middle" class="sub">your code, anywhere it runs</text>
-  <text x="170" y="368" text-anchor="middle" class="sub"><tspan text-decoration="line-through" fill="#64748B">import &lt;client&gt;</tspan>  →  <tspan fill="#F1F5F9" font-weight="600">from &lt;project&gt; import &lt;client&gt;</tspan></text>
+  <!-- devices -> endpoint -->
+  <path d="M300 160 L 418 160" class="edge" marker-end="url(#arrow)"/>
+  <rect x="304" y="126" width="110" height="24" rx="5" class="callout"/>
+  <text x="359" y="143" text-anchor="middle" class="callout-text">1  HTTPS · Basic</text>
+  <path d="M300 372 L 418 372" class="edge" stroke-dasharray="5 4" marker-start="url(#arrow)"/>
+  <text x="359" y="364" text-anchor="middle" class="sub">⤓ .kdbx</text>
 
-  <!-- compute -> endpoint -->
-  <path d="M300 220 L 418 220" class="edge" marker-end="url(#arrow)"/>
-  <rect x="304" y="186" width="110" height="24" rx="5" class="callout"/>
-  <text x="359" y="203" text-anchor="middle" class="callout-text">1  HTTPS · &lt;client&gt;</text>
+  <!-- ====================== s3keepass ====================== -->
+  <rect x="360" y="40" width="710" height="490" rx="12" class="group" stroke="#CBD5E1" stroke-width="1.6"/>
+  <text x="380" y="70" class="gtitle" font-size="18" fill="#F8FAFC">s3keepass: KeePass vaults on S3, opened in a web UI</text>
+  <text x="380" y="88" class="sub">Lambda Function URL · S3 (versioned, SSE-KMS) · ≈ $0 when idle</text>
 
-  <!-- browser (outside) -->
-  <g transform="translate(135,430)">
-    <rect width="70" height="52" rx="7" fill="#334155"/>
-    <rect x="6" y="6" width="58" height="8" rx="2" fill="#CBD5E1"/>
-    <circle cx="11" cy="10" r="2" fill="#F87171"/><circle cx="17" cy="10" r="2" fill="#FBBF24"/><circle cx="23" cy="10" r="2" fill="#34D399"/>
-    <rect x="6" y="18" width="58" height="28" rx="2" fill="#E2E8F0"/>
-    <rect x="11" y="23" width="26" height="4" rx="1.5" fill="#94A3B8"/><rect x="11" y="31" width="48" height="4" rx="1.5" fill="#CBD5E1"/><rect x="11" y="39" width="36" height="4" rx="1.5" fill="#CBD5E1"/>
-    <text x="35" y="70" text-anchor="middle" class="label">Browser</text>
-  </g>
-  <path d="M205 456 L 418 456" class="edge" marker-end="url(#arrow)"/>
-
-  <!-- ====================== s3rds ====================== -->
-  <rect x="360" y="40" width="700" height="490" rx="12" class="group" stroke="#CBD5E1" stroke-width="1.6"/>
-  <text x="380" y="70" class="gtitle" font-size="18" fill="#F8FAFC">&lt;project&gt;: a serverless &lt;replaces&gt;</text>
-  <text x="380" y="88" class="sub">Lambda URL as the endpoint · &lt;built on&gt; · ≈ $0 when idle</text>
-
-  <!-- Backend -->
-  <rect x="400" y="110" width="400" height="230" rx="9" class="group"/>
-  <text x="600" y="134" text-anchor="middle" class="gtitle" font-size="13">Backend</text>
-
+  <!-- the Lambda -->
+  <rect x="400" y="110" width="400" height="300" rx="9" class="group"/>
+  <text x="600" y="134" text-anchor="middle" class="gtitle" font-size="13">Endpoint</text>
   <g transform="translate(430,160)">
     <rect width="86" height="86" rx="10" fill="url(#gCompute)"/>
     <text x="43" y="62" text-anchor="middle" font-size="50" font-weight="700" fill="#FFFFFF">λ</text>
-    <text x="43" y="108" text-anchor="middle" class="label">Lambda: Endpoint</text>
-    <text x="43" y="124" text-anchor="middle" class="sub">user / password · &lt;engine&gt;</text>
+    <text x="43" y="108" text-anchor="middle" class="label">Lambda</text>
+    <text x="43" y="124" text-anchor="middle" class="sub">serves the UI</text>
+    <text x="43" y="138" text-anchor="middle" class="sub">moves ciphertext only</text>
   </g>
-
   <g transform="translate(540,160)">
-    <rect width="22" height="22" rx="4" class="callout"/><text x="11" y="16" text-anchor="middle" class="callout-text">2</text>
-    <text x="30" y="16" class="step">&lt;what the Lambda does with a request&gt;</text>
-    <rect y="44" width="22" height="22" rx="4" class="callout"/><text x="11" y="60" text-anchor="middle" class="callout-text">3</text>
-    <text x="30" y="60" class="step">&lt;how writes are made atomic&gt;</text>
-    <rect y="88" width="22" height="22" rx="4" class="callout"/><text x="11" y="104" text-anchor="middle" class="callout-text">4</text>
-    <text x="30" y="104" class="step">&lt;how errors map to the client's&gt;</text>
-    <text x="30" y="120" class="step">&lt;durability: when is it safe&gt;</text>
+    <text x="0" y="16" class="step">list keepass/*.kdbx (the "folder")</text>
+    <text x="0" y="34" class="step">get · versions · delete (If-Match)</text>
+    <rect y="52" width="22" height="22" rx="4" class="callout"/><text x="11" y="68" text-anchor="middle" class="callout-text">3</text>
+    <text x="30" y="62" class="step">save = PUT If-Match &lt;ETag read&gt;:</text>
+    <text x="30" y="77" class="step">a second tab or device is refused</text>
+    <text x="30" y="92" class="step">(412), never silently overwritten</text>
+    <text x="0" y="122" class="step">never sees a master password</text>
+    <text x="0" y="137" class="step">or a decrypted entry</text>
   </g>
 
-  <!-- Storage -->
-  <rect x="830" y="110" width="200" height="230" rx="9" class="group"/>
-  <text x="930" y="134" text-anchor="middle" class="gtitle" font-size="13">Storage</text>
-  <g transform="translate(887,160)">
+  <!-- storage -->
+  <rect x="830" y="110" width="210" height="300" rx="9" class="group"/>
+  <text x="935" y="134" text-anchor="middle" class="gtitle" font-size="13">Storage</text>
+  <g transform="translate(892,160)">
     <rect width="86" height="86" rx="10" fill="url(#gStorage)"/>
-    <rect x="18" y="20" width="50" height="46" rx="5" class="glyph" stroke-width="3"/>
-    <path d="M18 35 h50" class="glyph" stroke-width="2.4"/>
-    <text x="43" y="108" text-anchor="middle" class="label">&lt;built on&gt;: Storage</text>
-    <text x="43" y="124" text-anchor="middle" class="sub">&lt;what one item holds&gt;</text>
-    <text x="43" y="138" text-anchor="middle" class="sub">pay per request</text>
-    <text x="43" y="154" text-anchor="middle" class="sub">durable · multi-AZ</text>
+    <path d="M20 22 h46 l-6 46 h-34 z" class="glyph" stroke-width="2.8"/>
+    <ellipse cx="43" cy="22" rx="23" ry="6" class="glyph" stroke-width="2.4"/>
+    <text x="43" y="108" text-anchor="middle" class="label">S3: keepass/</text>
+    <text x="43" y="124" text-anchor="middle" class="sub">库1.kdbx · 库2.kdbx · …</text>
+    <text x="43" y="138" text-anchor="middle" class="sub">one object = one vault</text>
   </g>
-  <path d="M800 203 L 885 203" class="edge" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
+  <rect x="846" y="318" width="22" height="22" rx="4" class="callout"/><text x="857" y="334" text-anchor="middle" class="callout-text">4</text>
+  <text x="876" y="328" class="step">every save a version</text>
+  <text x="876" y="343" class="step">(newest 100 kept)</text>
+  <text x="876" y="364" class="step">SSE-KMS (aws/s3)</text>
+  <text x="876" y="379" class="step">TLS only · private</text>
+  <path d="M800 203 L 890 203" class="edge" marker-end="url(#arrow)" marker-start="url(#arrow)"/>
 
-  <!-- Web console (built-in) -->
-  <g transform="translate(430,392)">
-    <rect width="86" height="86" rx="10" fill="url(#gConsole)"/>
-    <rect x="13" y="16" width="60" height="8" rx="2" fill="#FFFFFF" opacity="0.95"/>
-    <rect x="13" y="29" width="60" height="42" rx="3" fill="#FFFFFF" opacity="0.22"/>
-    <rect x="18" y="35" width="50" height="4.5" rx="2" fill="#FFFFFF"/>
-    <rect x="18" y="44" width="50" height="4.5" rx="2" fill="#FFFFFF" opacity="0.7"/>
-    <rect x="18" y="53" width="50" height="4.5" rx="2" fill="#FFFFFF" opacity="0.7"/>
-    <rect x="18" y="62" width="30" height="4.5" rx="2" fill="#FFFFFF" opacity="0.7"/>
-    <text x="43" y="108" text-anchor="middle" class="label">Lambda: Web console</text>
+  <!-- KMS -->
+  <g transform="translate(450,436)">
+    <rect width="54" height="54" rx="8" fill="url(#gKms)"/>
+    <circle cx="20" cy="27" r="8" class="glyph" stroke-width="2.4"/>
+    <path d="M28 27 h16 M38 27 v7 M44 27 v5" class="glyph" stroke-width="2.4"/>
   </g>
-  <path d="M473 390 L 473 346" class="edge" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
-  <text x="482" y="372" class="sub">same HTTP API</text>
+  <text x="516" y="458" class="label">KMS aws/s3 key</text>
+  <text x="516" y="474" class="sub">AWS-managed, free · S3 encrypts every object at rest</text>
+  <path d="M935 412 L 935 452 L 822 452" class="edge" stroke-dasharray="5 4"/>
 
-  <rect x="540" y="412" width="22" height="22" rx="4" class="callout"/><text x="551" y="428" text-anchor="middle" class="callout-text">5</text>
-  <text x="570" y="428" class="step">built-in console: &lt;what it browses&gt;, &lt;what it runs&gt;,</text>
-  <text x="570" y="444" class="step">server time and backend action per call — like &lt;their tool&gt;, nothing to install</text>
-
-  <text x="710" y="512" text-anchor="middle" class="sub">&lt;the one-line guarantee summary&gt;</text>
+  <text x="715" y="512" text-anchor="middle" class="sub">Idle: no instance, no database, no fee — a few KB in S3. A vault is a standard KeePass file you can always take away.</text>
 </svg>

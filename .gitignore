@@ -13,3 +13,5 @@ cloudformation/params.json
 client/dist/
 client/build/
 client/*.egg-info/
+# files the compatibility tests hand to keepassxc-cli
+tests/compat/.work/

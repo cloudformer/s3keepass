@@ -1,21 +1,13 @@
-# <project>
+# s3keepass
 
-**Python client for [<project>](https://github.com/cloudformer/<project>) — a truly serverless <replaces>:
-<built on>, a Lambda Function URL as the endpoint, ≈ $0 when idle.** Part of
+**KeePass vaults (`.kdbx`) on your own S3, opened in a web UI served by a Lambda Function URL — decrypted only in
+your browser, ≈ $0 when idle, and KeePassXC still opens the same file.** Part of
 [Redefine AWS Serverless](https://github.com/topics/redefine-aws-serverless).
 
-![<project> architecture](https://raw.githubusercontent.com/cloudformer/<project>/main/docs/architecture.svg)
+![s3keepass architecture](https://raw.githubusercontent.com/cloudformer/s3keepass/main/docs/architecture.svg)
 
-```bash
-pip install <project>
-```
+0.1.0 is the service: deploy it once from the [main repository](https://github.com/cloudformer/s3keepass#quick-start)
+(Terraform) and open the URL. This package holds the version only; the command line
+(`pip install s3keepass`, then `s3keepass entry get github` …) comes in 0.2.0.
 
-```python
-from <project> import <client>        # later: `import <client>` against the real service, nothing else changes
-
-<five-line example>
-```
-
-The endpoint comes from deploying the [main repository](https://github.com/cloudformer/<project>) —
-same as any client needs its service. Compatibility with the real client:
-[REPORT.md](https://github.com/cloudformer/<project>/blob/main/tests/compat/REPORT.md).
+Compatibility with KeePassXC: [REPORT.md](https://github.com/cloudformer/s3keepass/blob/main/tests/compat/REPORT.md).

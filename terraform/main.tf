@@ -1,9 +1,9 @@
 data "aws_caller_identity" "me" {}
 
 locals {
-  role   = "${var.name}-lambda-role"
+  role   = "${var.project_name}-lambda-role"
   prefix = "keepass/" # fixed layout: s3://<bucket>/keepass/<vault>.kdbx
-  bucket = var.bucket != "" ? var.bucket : "${var.name}-${var.env}-${data.aws_caller_identity.me.account_id}"
+  bucket = var.bucket != "" ? var.bucket : "${var.project_name}-${var.env}-${data.aws_caller_identity.me.account_id}"
 }
 
 # ---------------- S3: every vault is one .kdbx under keepass/ in this private bucket ----------------
@@ -127,7 +127,7 @@ data "archive_file" "server" {
 }
 
 resource "aws_lambda_function" "server" {
-  function_name    = "${var.name}-lambda"
+  function_name    = "${var.project_name}-lambda"
   role             = aws_iam_role.lambda.arn
   runtime          = "python3.12"
   architectures    = [var.architecture]
@@ -139,25 +139,25 @@ resource "aws_lambda_function" "server" {
 
   environment {
     variables = {
-      USER_NAME = var.user
-      PASSWORD  = var.password
+      USER_NAME = var.console_auth_username
+      PASSWORD  = var.console_auth_password
       CONSOLE   = var.console ? "1" : "0"
       BUCKET    = aws_s3_bucket.vaults.bucket
     }
   }
 }
 
-# endpoint_auth = NONE:    public URL, our user/password is the only gate (the vaults stay KDBX-encrypted).
-#                          A public URL needs BOTH permission statements (AWS requirement since Oct 2025).
-# endpoint_auth = AWS_IAM: AWS verifies SigV4 + IAM first; no public permissions are created.
+# function_url_auth = NONE:    public URL, our user/password is the only gate (the vaults stay KDBX-encrypted).
+#                              A public URL needs BOTH permission statements (AWS requirement since Oct 2025).
+# function_url_auth = AWS_IAM: AWS verifies SigV4 + IAM first; no public permissions are created.
 # No CORS: the UI is served by the same URL, and no other site needs to call it.
 resource "aws_lambda_function_url" "server" {
   function_name      = aws_lambda_function.server.function_name
-  authorization_type = var.endpoint_auth
+  authorization_type = var.function_url_auth
 }
 
 resource "aws_lambda_permission" "url" {
-  count                  = var.endpoint_auth == "NONE" ? 1 : 0
+  count                  = var.function_url_auth == "NONE" ? 1 : 0
   statement_id           = "AllowPublicFunctionUrl"
   action                 = "lambda:InvokeFunctionUrl"
   function_name          = aws_lambda_function.server.function_name
@@ -166,7 +166,7 @@ resource "aws_lambda_permission" "url" {
 }
 
 resource "aws_lambda_permission" "url_invoke" {
-  count                    = var.endpoint_auth == "NONE" ? 1 : 0
+  count                    = var.function_url_auth == "NONE" ? 1 : 0
   statement_id             = "AllowPublicFunctionUrlInvoke"
   action                   = "lambda:InvokeFunction"
   function_name            = aws_lambda_function.server.function_name

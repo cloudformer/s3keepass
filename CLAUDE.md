@@ -27,7 +27,7 @@ file is kept — he opens the URL instead of KeePassXC, and the vaults live in S
   each call's server time and S3 action. Strict CSP: inline scripts by hash (computed by the Lambda), so the
   page must use `<script>` blocks without attributes and no inline event handlers.
 - **Sign-in**: HTTP Basic, user / password from the Terraform variable file named after the project:
-  `terraform/s3keepass.json` (gitignored; `example.json` committed).
+  `terraform/real-s3keepass.json` (gitignored; `example.json` committed).
 - **Master key = password + optional key file**, as in KeePass (KeePassXC `.keyx` / `.key`, a generated `.keyx`, any
   file by SHA-256 — vault-core `keyMaterial` hashes XML that is not a key file, as KeePassXC does). The key file is
   read in the browser and never uploaded. "No key file" in the kickoff meant no KMS / customer key encrypting the
@@ -41,7 +41,7 @@ file is kept — he opens the URL instead of KeePassXC, and the vaults live in S
 - PyPI name and github.com/cloudformer/s3keepass were free on 2026-10-29; reserve with
   `python3 ~/repo-private/redefine-aws-serverless-workflow/scripts/reserve_pypi.py s3keepass --upload` when Frank says.
 - Frank's commands use absolute paths: `git -C /Users/frankzhang/repo-private/s3keepass …`,
-  `terraform -chdir=/Users/frankzhang/repo-private/s3keepass/terraform … -var-file=s3keepass.json`.
+  `terraform -chdir=/Users/frankzhang/repo-private/s3keepass/terraform … -var-file=real-s3keepass.json`.
 
 ## Product principles
 

@@ -376,7 +376,7 @@ async function signIn() {
   const r = await ask('Sign in', [
     {name: 'u', label: 'User', required: true, autocomplete: 'username'},
     {name: 'p', label: 'Password', type: 'password', required: true, autocomplete: 'current-password'}],
-    {ok: 'Sign in', note: 'The user and password of this s3keepass deployment (terraform/s3keepass.json). ' +
+    {ok: 'Sign in', note: 'console_auth_username / console_auth_password of this deployment (terraform/real-s3keepass.json). ' +
                           'Your vaults stay locked: each one needs its own master password.'});
   if (!r) return false;
   cred = btoa(String.fromCharCode(...new TextEncoder().encode(r.u + ':' + r.p)));

@@ -4,15 +4,15 @@
   "assume_role_arn": "",
 
   "env": "dev",
-  "name": "s3keepass",
+  "project_name": "s3keepass",
+
+  "console": true,
+  "function_url_auth": "NONE",
+  "console_auth_username": "frank",
+  "console_auth_password": "CHANGE-ME",
+
   "bucket": "",
   "keep_versions": 100,
   "force_destroy": false,
-
-  "user": "frank",
-  "password": "CHANGE-ME",
-
-  "endpoint_auth": "NONE",
-  "architecture": "arm64",
-  "console": true
+  "architecture": "arm64"
 }

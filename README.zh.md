@@ -40,18 +40,18 @@ KeePassXC 的 `.keyx` / `.key`、网页生成的，或任意文件——每次�
 ### 1. 部署一次
 
 ```bash
-cp terraform/example.json terraform/s3keepass.json     # 改 aws_profile、user、password
+cp terraform/example.json terraform/real-s3keepass.json     # 改 aws_profile、console_auth_username、console_auth_password
 terraform -chdir=terraform init
-terraform -chdir=terraform apply -var-file=s3keepass.json
+terraform -chdir=terraform apply -var-file=real-s3keepass.json
 terraform -chdir=terraform output                      # console_url、bucket
 ```
 
-`terraform -chdir=terraform destroy -var-file=s3keepass.json` 会拆掉全部资源，但桶里还有库时会停下，除非设了
+`terraform -chdir=terraform destroy -var-file=real-s3keepass.json` 会拆掉全部资源，但桶里还有库时会停下，除非设了
 `"force_destroy": true`——先把要留的库下载下来。
 
 ### 2. 打开网址
 
-打开 `console_url`，用 `user` / `password` 登录，新建一个库（或上传 KeePassXC 的 `.kdbx`），把页面加书签。换新设备：
+打开 `console_url`，用 `console_auth_username` / `console_auth_password` 登录，新建一个库（或上传 KeePassXC 的 `.kdbx`），把页面加书签。换新设备：
 同一个网址，什么都不用装。离线或没有网址时：下载 `.kdbx`，用 KeePassXC 打开。
 
 ## 兼容性

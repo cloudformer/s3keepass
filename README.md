@@ -46,18 +46,18 @@ password from your variable file); each vault then needs its own master password
 ### 1. Deploy once
 
 ```bash
-cp terraform/example.json terraform/s3keepass.json     # set aws_profile, user, password
+cp terraform/example.json terraform/real-s3keepass.json     # set aws_profile, console_auth_username, console_auth_password
 terraform -chdir=terraform init
-terraform -chdir=terraform apply -var-file=s3keepass.json
+terraform -chdir=terraform apply -var-file=real-s3keepass.json
 terraform -chdir=terraform output                      # console_url, bucket
 ```
 
-`terraform -chdir=terraform destroy -var-file=s3keepass.json` removes everything, but stops at a bucket that
+`terraform -chdir=terraform destroy -var-file=real-s3keepass.json` removes everything, but stops at a bucket that
 still holds vaults unless you set `"force_destroy": true` — download what you want to keep first.
 
 ### 2. Open the URL
 
-Open `console_url`, sign in with `user` / `password`, create a vault (or upload a `.kdbx` from KeePassXC), and
+Open `console_url`, sign in with `console_auth_username` / `console_auth_password`, create a vault (or upload a `.kdbx` from KeePassXC), and
 bookmark the page. On a new device: the same URL, nothing to install. Offline or without the URL: download the
 `.kdbx` and open it in KeePassXC.
 

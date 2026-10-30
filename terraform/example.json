@@ -11,7 +11,7 @@
   "console_auth_username": "frank",
   "console_auth_password": "CHANGE-ME",
 
-  "bucket": "",
+  "bucket": "s3keepass-dev-change-me",
   "keep_versions": 100,
   "force_destroy": false,
   "architecture": "arm64"

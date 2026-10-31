@@ -21,6 +21,7 @@ dependencies = []  # standard library only
 
 [project.urls]
 Homepage = "https://github.com/cloudformer/s3keepass"
+IdleFree = "https://cloudformer.github.io/"
 Repository = "https://github.com/cloudformer/s3keepass"
 Deploy = "https://github.com/cloudformer/s3keepass#quick-start"
 Compatibility = "https://github.com/cloudformer/s3keepass/blob/main/tests/compat/REPORT.md"

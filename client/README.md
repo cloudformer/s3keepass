@@ -2,7 +2,7 @@
 
 **KeePass vaults (`.kdbx`) on your own S3, opened in a web UI served by a Lambda Function URL — decrypted only in
 your browser, ≈ $0 when idle, and KeePassXC still opens the same file.** Part of
-[Redefine AWS Serverless](https://github.com/topics/redefine-aws-serverless).
+[IdleFree](https://cloudformer.github.io/).
 
 ![s3keepass architecture](https://raw.githubusercontent.com/cloudformer/s3keepass/main/docs/architecture.svg)
 

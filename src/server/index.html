@@ -540,9 +540,13 @@ const confirmDlg = (title, note, ok = 'Delete') => ask(title, [], {note, ok, dan
 const SETS = {upper: 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', lower: 'abcdefghijklmnopqrstuvwxyz', digits: '0123456789',
               symbols: '!#$%&*+-=?@^_~.,:;()[]{}<>/|'};
 const LOOKALIKE = /[Il1O0o|]/g;
+// the generator opens at GEN_LENGTH every time (a longer one is refused by some sites); the length chosen in the
+// dialog is for that password only. The character sets are remembered.
+const GEN_LENGTH = 20;
 function genOpts() {
-  const o = {length: 20, upper: true, lower: true, digits: true, symbols: true, similar: true};
+  const o = {upper: true, lower: true, digits: true, symbols: true, similar: true};
   try { Object.assign(o, JSON.parse(store.get('gen') || '{}')); } catch (e) {}
+  o.length = GEN_LENGTH;
   return o;
 }
 function randInt(n) {   // uniform in [0, n): rejection sampling on crypto.getRandomValues, no modulo bias
@@ -578,7 +582,7 @@ function generatorDialog(use) {
   const regen = () => {
     o.length = +len.value; lenN.textContent = o.length;
     for (const k in boxes) o[k] = boxes[k].checked;
-    store.set('gen', JSON.stringify(o));
+    store.set('gen', JSON.stringify(Object.assign({}, o, {length: undefined})));   // not the length
     out.textContent = generate(o); bits.textContent = strength(out.textContent).label;
   };
   const body = h('div', {},

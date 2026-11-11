@@ -162,6 +162,9 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 .dlg-err { color: var(--err); font-size: 13px; min-height: 18px; margin-top: 10px; }
 .dlg-err.busy { color: var(--muted); }   /* in progress (Unlocking …): grey; failed: red; done: green */
 .dlg-err.done { color: var(--ok); }
+.keyfile-note { margin-top: 8px; padding: 8px 10px; border: 1px solid var(--warn-line); background: var(--warn-bg);
+  border-radius: 6px; font-size: 13px; line-height: 1.6; }
+.keyfile-note b { color: var(--err); }
 .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 .dlg-actions .left { margin-right: auto; }
 .gen-out { font: 17px var(--mono); padding: 12px; border: 1px solid var(--line2); border-radius: 8px; background: var(--panel2);
@@ -472,18 +475,29 @@ function fieldEl(f, inputs) {
 function keyFileEl(f, inputs) {
   const input = h('input', {type: 'file', hidden: true}), label = h('span', {class: 'val muted', text: 'none'});
   input.keyFile = null;
-  const set = (bytes, name) => { input.keyFile = bytes; label.textContent = name || 'none'; label.className = 'val' + (bytes ? '' : ' muted'); };
-  input.addEventListener('change', async () => { const file = input.files[0]; if (file) set(await file.arrayBuffer(), file.name); });
+  // where a key file becomes part of the master key (new vault, change master key): say so plainly, in Chinese
+  const note = f.generate ? h('div', {class: 'keyfile-note', hidden: true}) : null;
+  const set = (bytes, name, made) => {
+    input.keyFile = bytes; label.textContent = name || 'none'; label.className = 'val' + (bytes ? '' : ' muted');
+    if (!note) return;
+    note.hidden = !bytes;
+    if (bytes) note.replaceChildren(
+      h('div', {}, h('b', {text: `已使用密钥文件：${name}`})),
+      h('div', {text: '打开这个库需要：主密码 + 这个密钥文件。丢了这个文件，库就打不开了。'}),
+      made ? h('div', {text: '这个文件刚生成并已下载到你的电脑，请马上备份。'}) : null,
+      h('div', {text: '不想使用密钥文件，请点 ✕；想用你自己的密钥文件，请点 Choose… 上传。'}));
+  };
+  input.addEventListener('change', async () => { const file = input.files[0]; if (file) set(await file.arrayBuffer(), file.name, false); });
   inputs[f.name] = input;
   return h('div', {class: 'f'}, h('label', {text: f.label}),
     h('div', {class: 'row-in'}, label, input,
       h('button', {type: 'button', class: 'btn sm', onclick: () => input.click()}, 'Choose…'),
       f.generate ? h('button', {type: 'button', class: 'btn sm', title: 'Create a random key file and download it', onclick: async () => {
         const bytes = await Vault.newKeyFile(), name = (f.generate() || 'vault') + '.keyx';
-        saveFile(bytes, name); set(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), name + ' (new, downloaded)');
+        saveFile(bytes, name); set(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), name, true);
       }}, 'New') : null,
       h('button', {type: 'button', class: 'icon-btn', title: 'No key file', onclick: () => { input.value = ''; set(null); }}, '✕')),
-    f.hint ? h('div', {class: 'hint', text: f.hint}) : null);
+    note, f.hint ? h('div', {class: 'hint', text: f.hint}) : null);
 }
 const KEYFILE_HINT = 'Optional, as in KeePassXC (.keyx, .key or any file). Read in this browser only, never uploaded — keep a copy: without it the vault cannot be opened.';
 const confirmDlg = (title, note, ok = 'Delete') => ask(title, [], {note, ok, danger: true}).then(r => !!r);

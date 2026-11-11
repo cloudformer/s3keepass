@@ -54,6 +54,21 @@ def test_ui_and_vendor_are_public_and_the_api_needs_auth(fake_s3):
     assert call("GET", "/api/ping")[1]["ok"] is True
 
 
+def test_me_is_the_signed_in_user(fake_s3):
+    """Task 1: auth_method = web — the identity is the HTTP Basic user (owner and access records use it)."""
+    status, out, _ = call("GET", "/api/me")
+    assert status == 200 and out["identity"] == "admin" and out["auth_method"] == "web"
+    assert call("GET", "/api/me", auth=None)[0] == 401
+
+
+def test_cloudflare_mode_is_closed_until_it_exists(fake_s3, monkeypatch):
+    """Task 1: auth_method = cloudflare is reserved, not built yet — it fails closed, never falls back to open."""
+    monkeypatch.setattr(lf, "AUTH_METHOD", "cloudflare")
+    for path in ("/", "/api/ping", "/api/me", "/api/vaults"):
+        status, out, _ = call("GET", path)
+        assert status == 503 and "cloudflare" in out["error"], path
+
+
 def test_csp_runs_only_this_pages_scripts():
     """A title from an uploaded vault cannot become script: inline scripts run only by hash, no unsafe-inline."""
     status, body, headers = call("GET", "/", auth=None)

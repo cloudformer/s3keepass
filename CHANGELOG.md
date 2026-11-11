@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Sign-in method is a setting, `AUTH_METHOD`: `web` (HTTP Basic, as before) or `cloudflare` (reserved: refused
+  with 503 until it is built, never left open). `GET /api/me` returns who is signed in; the identity (the Basic
+  user for now) is what owner and access records will use.
+
 ## 0.1.0 — 2026-10-29
 
 First release: the web UI replaces a local KeePass client.

@@ -3,12 +3,17 @@
 The Lambda only lists, reads and writes encrypted bytes. Vaults are decrypted and encrypted in the browser
 (index.html, with the vendored kdbxweb + argon2); the master password and the plaintext never reach it.
 
-The first half (JSON, request body, HTTP Basic auth, routing, error mapping, timing) is the series' shared
-shell; the routes are in the second half.
+The first half (JSON, request body, sign-in, routing, error mapping, timing) is the series' shared shell; the
+routes are in the second half.
+
+Sign-in, AUTH_METHOD:
+    web         HTTP Basic (USER_NAME / PASSWORD); the page and /vendor are public. Identity = the user name.
+    cloudflare  reserved for Cloudflare Access, not built yet: every request is refused (503), never left open.
 
     GET    /                                  web UI (index.html), public
     GET    /vendor/<file>.js                  the vendored crypto libraries, public
     GET    /api/ping                          {"ok": true}
+    GET    /api/me                            {"identity", "auth_method"}: who is signed in
     GET    /api/vaults                        the "folder": every keepass/<name>.kdbx
     GET    /api/vaults/<name>[?version=<id>]  the encrypted file (ETag header); an older version with ?version
     PUT    /api/vaults/<name>                 save: If-Match <etag> (update) or If-None-Match * (create) required
@@ -27,6 +32,7 @@ import urllib.parse
 import boto3
 from botocore.exceptions import ClientError
 
+AUTH_METHOD = os.environ.get("AUTH_METHOD", "web")   # web | cloudflare (reserved)
 USER = os.environ.get("USER_NAME", "")
 PASSWORD = os.environ.get("PASSWORD", "")
 CONSOLE = os.environ.get("CONSOLE", "1") == "1"
@@ -117,6 +123,11 @@ def _authed(event):
     return hmac.compare_digest(user.encode(), USER.encode()) & hmac.compare_digest(password.encode(), PASSWORD.encode())
 
 
+def _identity(event):
+    """Who is calling (web: the Basic user), or None when not signed in. Handlers read it as event["identity"]."""
+    return (USER or "anonymous") if _authed(event) else None
+
+
 ERRORS = [(BadRequest, 400), (Forbidden, 403), (NotFound, 404), (Conflict, 412), (TooLarge, 413),
           (PreconditionRequired, 428)]   # exception class -> HTTP status
 
@@ -124,6 +135,8 @@ ERRORS = [(BadRequest, 400), (Forbidden, 403), (NotFound, 404), (Conflict, 412),
 def lambda_handler(event, context):
     http = (event.get("requestContext") or {}).get("http") or {}
     method, path = http.get("method", "GET"), urllib.parse.unquote(event.get("rawPath", "/"))
+    if AUTH_METHOD != "web":   # fail closed: an unbuilt sign-in must not leave the page or the API open
+        return _json(503, {"error": f"auth_method {AUTH_METHOD!r} is not available yet; deploy with auth_method = web"})
     if CONSOLE and method == "GET" and path in ("/", "/index.html"):
         return {"statusCode": 200, "body": INDEX_HTML,
                 "headers": dict(PAGE_HEADERS, **{"content-type": "text/html; charset=utf-8", "cache-control": "no-cache"})}
@@ -131,7 +144,8 @@ def lambda_handler(event, context):
         return {"statusCode": 200, "body": VENDOR[path[8:]],
                 "headers": {"content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=86400",
                             "x-content-type-options": "nosniff"}}
-    if not _authed(event):
+    event["identity"] = _identity(event)
+    if event["identity"] is None:
         return _json(401, {"error": "bad credentials"})
     t0 = time.perf_counter()
     status, data = 404, {"error": f"no route: {method} {path}"}
@@ -187,6 +201,10 @@ def _iso(dt):
 
 def ping(event):
     return {"ok": True}
+
+
+def me(event):
+    return {"identity": event["identity"], "auth_method": AUTH_METHOD}
 
 
 def list_vaults(event):
@@ -279,6 +297,7 @@ def list_versions(event, name):
 
 ROUTES = [
     ("GET",    re.compile(r"/api/ping"), ping),
+    ("GET",    re.compile(r"/api/me"), me),
     ("GET",    re.compile(r"/api/vaults"), list_vaults),
     ("GET",    re.compile(r"/api/vaults/(?P<name>[^/]+)/versions"), list_versions),
     ("GET",    re.compile(r"/api/vaults/(?P<name>[^/]+)"), get_vault),

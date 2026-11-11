@@ -86,30 +86,6 @@ variable "keep_versions" {
   }
 }
 
-variable "template_source" {
-  description = "Where a new vault's template comes from: env = template below (redeploy to change), s3 = s3://<bucket>/config/template.json (edit it live)"
-  type        = string
-  default     = "env"
-
-  validation {
-    condition     = contains(["env", "s3"], var.template_source)
-    error_message = "template_source must be env or s3."
-  }
-}
-
-variable "template" {
-  description = "What a new vault starts with (template_source = env): Argon2id memory / parallelism / minimum unlock time, groups, extra fields, entry history kept, recycle bin"
-  type        = any
-  default = {
-    kdf               = { memory_mib = 128, parallelism = 2, unlock_ms = 1500 }
-    cipher            = "aes256"
-    groups            = []
-    fields            = []
-    history_max_items = 0
-    recycle_bin       = false
-  }
-}
-
 variable "log_retention_days" {
   description = "Days an access record (log/, one object per read / save / unlock) is kept"
   type        = number

@@ -1,0 +1,8 @@
+{
+  "kdf": { "memory_mib": 128, "parallelism": 2, "unlock_ms": 1500 },
+  "cipher": "aes256",
+  "groups": [],
+  "fields": [],
+  "history_max_items": 0,
+  "recycle_bin": false
+}

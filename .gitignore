@@ -5,6 +5,7 @@ __pycache__/
 # real deployment variables (secrets) — only example.json / example-params.json are committed
 terraform/*.json
 !terraform/example.json
+!terraform/template.json
 terraform/.terraform/
 terraform/.build/
 terraform/state/

@@ -25,8 +25,8 @@ Sign-in, AUTH_METHOD:
     POST   /api/audit/unlock                  {"path", "ok"}: the browser reports an unlock result (self-reported:
                                               a file downloaded around the page never shows up here)
     GET    /api/audit?path=<key>&limit=<n>    a vault's access records, newest first
-    GET    /api/template                      what a new vault starts with (TEMPLATE_SOURCE: env = TEMPLATE_JSON from
-                                              the deployment, s3 = s3://<bucket>/config/template.json, edited live)
+    GET    /api/template                      what a new vault starts with: s3://<bucket>/config/template.json
+                                              (terraform/template.json in the repository, uploaded by terraform apply)
 
 Access records: every read, save, create, delete and reported unlock is one small JSON object,
 log/<vault key>/<time>-<random>.json (write-only, so concurrent writers never collide; the bucket's lifecycle
@@ -55,9 +55,7 @@ CONSOLE = os.environ.get("CONSOLE", "1") == "1"
 BUCKET = os.environ.get("BUCKET", "")
 PREFIX = "keepass/"                 # fixed layout: s3://<bucket>/keepass/[<folder>/]<name>.kdbx
 MAIN = ""                           # the top level, keepass/ itself; a folder is one level down
-TEMPLATE_SOURCE = os.environ.get("TEMPLATE_SOURCE", "env")   # env | s3
-TEMPLATE_JSON = os.environ.get("TEMPLATE_JSON", "{}")
-TEMPLATE_KEY = "config/template.json"
+TEMPLATE_KEY = "config/template.json"      # the new-vault template (terraform/template.json, uploaded by Terraform)
 LOG = "log/"                        # access records: s3://<bucket>/log/<vault key>/<time>-<random>.json
 MAX_BYTES = 4_718_592               # 4.5 MB: a Function URL takes at most 6 MB per request, base64 included
 
@@ -365,20 +363,17 @@ def audit(event):
 
 def template(event):
     """The new-vault template, as stored: the browser applies it (KDF, groups, fields, history, recycle bin)."""
-    if TEMPLATE_SOURCE == "s3":
-        source = f"s3:{TEMPLATE_KEY}"
-        try:
-            raw = s3.get_object(Bucket=BUCKET, Key=TEMPLATE_KEY)["Body"].read()
-        except ClientError:
-            raise Misconfigured(f"template_source = s3 but s3://{BUCKET}/{TEMPLATE_KEY} cannot be read") from None
-    else:
-        source, raw = "env", TEMPLATE_JSON
+    try:
+        raw = s3.get_object(Bucket=BUCKET, Key=TEMPLATE_KEY)["Body"].read()
+    except ClientError:
+        raise Misconfigured(f"s3://{BUCKET}/{TEMPLATE_KEY} cannot be read: run terraform apply "
+                            "(it uploads terraform/template.json)") from None
     try:
         data = json.loads(raw)
         assert isinstance(data, dict)
     except (ValueError, AssertionError):
-        raise Misconfigured(f"the new-vault template ({source}) is not a JSON object") from None
-    return {"template": data, "source": source}
+        raise Misconfigured(f"{TEMPLATE_KEY} is not a JSON object: fix terraform/template.json and apply") from None
+    return {"template": data, "source": f"s3:{TEMPLATE_KEY}"}
 
 
 def put_vault(event, folder, name):

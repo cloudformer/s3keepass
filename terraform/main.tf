@@ -93,6 +93,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "vaults" {
   }
 }
 
+# the new-vault template: terraform/template.json in the repository, uploaded on every apply that changes it
+resource "aws_s3_object" "template" {
+  bucket       = aws_s3_bucket.vaults.id
+  key          = "config/template.json"
+  source       = "${path.module}/template.json"
+  etag         = filemd5("${path.module}/template.json")
+  content_type = "application/json"
+}
+
 # ---------------- IAM: one role, least privilege — only keepass/*.kdbx ----------------
 resource "aws_iam_role" "lambda" {
   name = local.role
@@ -129,7 +138,7 @@ resource "aws_iam_role_policy" "lambda" {
         Resource = "${aws_s3_bucket.vaults.arn}/log/*"
       },
       {
-        # the new-vault template, when template_source = s3: read only
+        # the new-vault template (terraform/template.json, uploaded below): read only
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
         Resource = "${aws_s3_bucket.vaults.arn}/config/template.json"
@@ -165,12 +174,10 @@ resource "aws_lambda_function" "server" {
 
   environment {
     variables = {
-      USER_NAME       = var.console_auth_username
-      PASSWORD        = var.console_auth_password
-      CONSOLE         = var.console ? "1" : "0"
-      BUCKET          = aws_s3_bucket.vaults.bucket
-      TEMPLATE_SOURCE = var.template_source
-      TEMPLATE_JSON   = jsonencode(var.template)
+      USER_NAME = var.console_auth_username
+      PASSWORD  = var.console_auth_password
+      CONSOLE   = var.console ? "1" : "0"
+      BUCKET    = aws_s3_bucket.vaults.bucket
     }
   }
 }

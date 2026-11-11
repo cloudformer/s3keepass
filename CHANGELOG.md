@@ -39,8 +39,8 @@
   entries in their new group, unchanged (compatibility test).
 
 - `GET /api/template`: what a new vault starts with (Argon2id memory, parallelism, minimum unlock time; groups;
-  extra fields; entry history kept; recycle bin). `template_source = env` takes the `template` variable,
-  `s3` reads `config/template.json` from the bucket (edit it, no redeploy). Applied when a vault is created (task 8).
+  extra fields; entry history kept; recycle bin). It is `terraform/template.json` in the repository; terraform
+  apply uploads it to `config/template.json` in the bucket. Applied when a vault is created (task 8).
 - Both screens keep their actions on the list head (files: New vault, Upload, New folder, Open, Versions, Delete;
   entries: New entry, New group, Edit, Move to…, Delete); the top bar has only what concerns the whole page.
 

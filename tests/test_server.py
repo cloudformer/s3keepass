@@ -366,31 +366,21 @@ def test_size_limit_is_4_5_mb(fake_s3):
     assert status == 413 and "4.5 MB" in out["error"]
 
 
-# ---- task 6: the new-vault template — from the deployment (env) or from s3://<bucket>/config/template.json ----
+# ---- task 6: the new-vault template — terraform/template.json, uploaded to s3://<bucket>/config/template.json ----
 
-TEMPLATE = {"kdf": {"memory_mib": 128, "parallelism": 2, "unlock_ms": 1500}, "cipher": "aes256",
-            "groups": ["Email", "Finance"], "fields": ["PIN"], "history_max_items": 0, "recycle_bin": False}
-
-
-def test_template_from_the_deployment(fake_s3, monkeypatch):
-    monkeypatch.setattr(lf, "TEMPLATE_SOURCE", "env")
-    monkeypatch.setattr(lf, "TEMPLATE_JSON", json.dumps(TEMPLATE))
+def test_template_is_the_one_in_the_repository(fake_s3):
+    """The repository's template (what terraform apply uploads) is what the API serves."""
+    with open(os.path.join(os.path.dirname(__file__), "..", "terraform", "template.json"), encoding="utf-8") as f:
+        repo = json.load(f)
+    assert repo["kdf"] == {"memory_mib": 128, "parallelism": 2, "unlock_ms": 1500} and repo["history_max_items"] == 0
+    fake_s3.put_object(Bucket="b", Key="config/template.json", Body=json.dumps(repo).encode())
     status, out, _ = call("GET", "/api/template")
-    assert status == 200 and out["template"] == TEMPLATE and out["source"] == "env"
+    assert status == 200 and out["template"] == repo and out["source"] == "s3:config/template.json"
 
 
-def test_template_from_s3(fake_s3, monkeypatch):
-    monkeypatch.setattr(lf, "TEMPLATE_SOURCE", "s3")
-    fake_s3.put_object(Bucket="b", Key="config/template.json", Body=json.dumps(dict(TEMPLATE, groups=["S3"])).encode())
+def test_a_missing_or_broken_template_says_what_to_do(fake_s3):
     status, out, _ = call("GET", "/api/template")
-    assert status == 200 and out["template"]["groups"] == ["S3"] and out["source"] == "s3:config/template.json"
-
-
-def test_a_broken_template_says_so(fake_s3, monkeypatch):
-    monkeypatch.setattr(lf, "TEMPLATE_SOURCE", "env")
-    monkeypatch.setattr(lf, "TEMPLATE_JSON", "{not json")
+    assert status == 500 and "terraform apply" in out["error"]
+    fake_s3.put_object(Bucket="b", Key="config/template.json", Body=b"{not json")
     status, out, _ = call("GET", "/api/template")
-    assert status == 500 and "template" in out["error"]
-    monkeypatch.setattr(lf, "TEMPLATE_SOURCE", "s3")                       # s3 chosen, file missing
-    status, out, _ = call("GET", "/api/template")
-    assert status == 500 and "config/template.json" in out["error"]
+    assert status == 500 and "terraform/template.json" in out["error"]

@@ -8,6 +8,7 @@ is read by both sides (keepassxc-cli export / the web UI's vault code in Node) a
     python3 -m pytest tests -q --docker run    # ... stop if all passed
     python3 -m pytest tests -q --docker down   # ... always stop
 """
+import time
 import pytest
 
 from kdbx_sides import Refused, expected
@@ -135,10 +136,16 @@ def test_wrong_master_password_is_refused(kx, ours, box):
 
 
 def test_new_vault_format(kx, ours, box):
-    """Metadata | new vaults: KDBX 4, AES-256, Argon2id 64 MiB x 8 | KeePassXC's defaults with Argon2id instead of Argon2d"""
+    """Metadata | new vaults: KDBX 4, AES-256, Argon2id 128 MiB, passes tuned to >= 1.5 s | against brute force (Frank, 2026-11-11: was a fixed 64 MiB x 8)"""
     f = box.box("库1.kdbx")
     ours.create(f, PW, {})
-    assert ours.info(f, PW) == {"version": 4, "cipher": "Aes", "kdf": "Argon2id", "memory": 64 * 1024 * 1024, "iterations": 8}
+    info = ours.info(f, PW)
+    assert {k: info[k] for k in ("version", "cipher", "kdf", "memory")} == {
+        "version": 4, "cipher": "Aes", "kdf": "Argon2id", "memory": 128 * 1024 * 1024}
+    assert info["iterations"] >= 4
+    t0 = time.monotonic()
+    ours.info(f, PW)                                           # opening = one full Argon2id run, on the device that made it
+    assert time.monotonic() - t0 >= 1.5, "opening a new vault must take at least 1.5 s"
     info = kx.info(f, PW)
     assert "Argon2id" in info and "AES" in info, info
 

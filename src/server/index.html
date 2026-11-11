@@ -251,14 +251,29 @@ const Vault = (() => {
   }
   const text = v => v == null ? '' : typeof v === 'string' ? v : v.getText();
 
-  // a new vault: KDBX 4, AES-256, Argon2id 64 MiB x 8 (KeePassXC's defaults, Argon2id instead of Argon2d)
+  // against brute force: every guess at the master key costs one Argon2id run of KDF_MIB memory, and the number of
+  // passes is tuned on this device so that opening the vault takes at least UNLOCK_MS (the file lives on S3).
+  const KDF_MIB = 128, KDF_PARALLELISM = 2, KDF_MIN_ITERATIONS = 4, UNLOCK_MS = 1500;
+  async function kdfIterations(targetMs = UNLOCK_MS) {
+    const run = async time => {
+      const t0 = Date.now();
+      await argon2.hash({pass: new Uint8Array(16), salt: new Uint8Array(32), time, mem: KDF_MIB * 1024, hashLen: 32,
+        parallelism: KDF_PARALLELISM, type: argon2.ArgonType.Argon2id});
+      return Date.now() - t0;
+    };
+    await run(1);                                          // warm-up: loads the WASM, allocates the memory
+    const t1 = await run(1), t3 = await run(3);            // time(n) ~ fixed + n * pass, measured on this device
+    const pass = Math.max((t3 - t1) / 2, 1), fixed = Math.max(t1 - pass, 0);
+    return Math.max(KDF_MIN_ITERATIONS, Math.ceil((targetMs * 1.15 - fixed) / pass));   // +15%: stay above the target
+  }
+  // a new vault: KDBX 4, AES-256, Argon2id 128 MiB, passes tuned to >= 1.5 s here (KeePassXC tunes the same way)
   async function create(name, password, keyFile) {
     const db = K.Kdbx.create(await creds(password, keyFile), name);
     db.setKdf(K.Consts.KdfId.Argon2id);
     const p = db.header.kdfParameters, T = K.VarDictionary.ValueType;
-    p.set('M', T.UInt64, K.Int64.from(64 * 1024 * 1024));
-    p.set('I', T.UInt64, K.Int64.from(8));
-    p.set('P', T.UInt32, 2);
+    p.set('M', T.UInt64, K.Int64.from(KDF_MIB * 1024 * 1024));
+    p.set('I', T.UInt64, K.Int64.from(await kdfIterations()));
+    p.set('P', T.UInt32, KDF_PARALLELISM);
     return db;
   }
   const open = async (bytes, password, keyFile) => K.Kdbx.load(bytes, await creds(password, keyFile));
@@ -713,7 +728,7 @@ async function newVault() {
     {name: 'pw', label: 'Master password', type: 'password', required: true, generate: true, meter: true, autocomplete: 'new-password'},
     {name: 'pw2', label: 'Repeat master password', type: 'password', required: true, autocomplete: 'new-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: KEYFILE_HINT, generate: () => $('dialog[open] input').value.trim()}],
-    {ok: 'Create', busy: 'Encrypting (Argon2id) …', done: 'Created', note: 'The master password never leaves this browser. ' +
+    {ok: 'Create', busy: 'Tuning Argon2id to ≥ 1.5 s on this device, then encrypting …', done: 'Created', note: 'The master password never leaves this browser. ' +
        'There is no recovery: if you forget it, the vault cannot be opened.',
      validate: async v => {
        const name = v.name.trim();

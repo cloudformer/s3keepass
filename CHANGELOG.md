@@ -26,6 +26,10 @@
   S3 file (folder / name.kdbx) above its groups; 📁 is an S3 folder, 🗂 a KeePass group. Sign out only on the
   file page. No download buttons (the conflict "download my copy" stays: it never leaves the browser).
 
+- New vaults resist brute force by time, not by a fixed setting: Argon2id 128 MiB (was 64), and the number of
+  passes is tuned on the device that creates the vault so that opening it takes at least 1.5 s (was a fixed 8).
+  KeePassXC tunes the same way and opens these files unchanged.
+
 ## 0.1.0 — 2026-10-29
 
 First release: the web UI replaces a local KeePass client.

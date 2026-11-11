@@ -898,7 +898,8 @@ function renderVault() {
   const ro = !!S.conflict, inBin = Vault.inRecycleBin(S.db, S.group);
   crumbs('Vaults', ...(S.folder ? [S.folder] : []), `${S.name}.kdbx`);
   toolbar([
-    {icon: '＋', label: 'Entry', title: 'New entry in this group', disabled: ro || inBin, do: () => entryDialog(null)},
+    {icon: '＋', label: 'New entry', title: 'New entry in this group', disabled: ro || inBin, do: () => entryDialog(null)},
+    {icon: '＋', label: 'New group', title: 'New group inside this group', disabled: ro || inBin, do: () => groupDialog(null)},
     {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
     {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)},
     '|',
@@ -939,7 +940,6 @@ function renderTree(ro) {
     s3node(safe(true), `${S.name}.kdbx`, S.folder ? 2 : 1, true, `s3://…/${s3Path(S.name, S.folder)} · unlocked in this browser`)].filter(Boolean);
   $('#tree').replaceChildren(...s3,
     h('div', {class: 'pane-title', style: 'margin-top:10px;border-top:1px solid var(--line);padding-top:10px'}, 'Groups · inside this file', h('span', {class: 'spacer'}),
-      h('button', {class: 'icon-btn', title: 'New group inside the selected one', disabled: ro || inBin, onclick: () => groupDialog(null)}, '＋'),
       h('button', {class: 'icon-btn', title: 'Rename the group', disabled: ro || atRoot || S.group === bin, onclick: () => groupDialog(S.group)}, '✎'),
       h('button', {class: 'icon-btn', title: 'Delete the group', disabled: ro || atRoot, onclick: () => deleteGroup(S.group)}, '🗑')),
     h('ul', {}, node(rootGroup, 0)));
@@ -971,7 +971,8 @@ function renderList(ro) {
     h('tr', {}, h('th', {}, 'Title'), h('th', {}, 'User name'), h('th', {}, 'URL'), searching ? h('th', {}, 'Group') : null, h('th', {}, 'Modified')),
     rows) : h('div', {class: 'empty'}, searching ? 'No match.' : Vault.inRecycleBin(S.db, S.group) ? 'Nothing in here.' :
       h('div', {}, 'No entries in this group.', ro ? null : h('div', {style: 'margin-top:10px'},
-        h('button', {class: 'btn primary', onclick: () => entryDialog(null)}, '＋ New entry'))));
+        h('button', {class: 'btn primary', onclick: () => entryDialog(null)}, '＋ New entry'), ' ',
+        h('button', {class: 'btn primary', onclick: () => groupDialog(null)}, '＋ New group'))));
   $('#list').replaceChildren(...[head, banner, h('div', {class: 'list-body'}, body)].filter(Boolean));
 }
 

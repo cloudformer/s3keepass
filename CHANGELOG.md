@@ -30,6 +30,11 @@
   passes is tuned on the device that creates the vault so that opening it takes at least 1.5 s (was a fixed 8).
   KeePassXC tunes the same way and opens these files unchanged.
 
+- Changing the master key asks for the current one first (password, and key file if the vault uses one): an
+  unlocked tab left alone cannot have its master key replaced. Checked by comparing key hashes, no extra Argon2 run.
+- Bigger copy / reveal buttons next to user name, password and the other fields. The password generator opens at
+  20 characters every time.
+
 ## 0.1.0 — 2026-10-29
 
 First release: the web UI replaces a local KeePass client.

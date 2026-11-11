@@ -69,6 +69,7 @@ a { color: var(--accent); }
 .icon-btn { border: none; background: none; cursor: pointer; padding: 3px 6px; border-radius: 5px; color: var(--muted); font-size: 13px; }
 .icon-btn:hover:not(:disabled) { background: var(--line); color: var(--accent); }
 .icon-btn:disabled { opacity: .35; cursor: default; }
+.field .icon-btn { font-size: 17px; padding: 4px 9px; border: 1px solid var(--line); background: var(--panel2); }   /* copy / reveal: easy to hit */
 .muted { color: var(--muted); }
 .mono { font-family: var(--mono); }
 .empty { padding: 48px 20px; text-align: center; color: var(--muted); }
@@ -283,6 +284,12 @@ const Vault = (() => {
     await db.credentials.setKeyFile(await keyMaterial(keyFile));
   }
   const newKeyFile = () => K.KdbxCredentials.createRandomKeyFile(2);     // a KeePassXC-style .keyx (XML 2.0)
+  // is password + key file the open vault's current master key? Compares the composite key hashes (no Argon2 run)
+  async function isMasterKey(db, password, keyFile) {
+    const [a, b] = await Promise.all([db.credentials.getHash(), (await creds(password, keyFile)).getHash()]);
+    const x = new Uint8Array(a), y = new Uint8Array(b);
+    return x.length === y.length && x.every((v, i) => v === y[i]);
+  }
 
   // an entry as plain values: the five standard fields, tags, custom attributes (protected ones stay protected)
   function fields(entry) {
@@ -315,7 +322,7 @@ const Vault = (() => {
   }
   // delete = move to the recycle bin, as KeePassXC does; from inside the bin it is permanent
   function remove(db, item) { if (inRecycleBin(db, item)) db.move(item, null); else db.remove(item); }
-  return {create, open, save, setMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin, inRecycleBin, remove};
+  return {create, open, save, setMasterKey, isMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin, inRecycleBin, remove};
 })();
 </script>
 <script>
@@ -1102,11 +1109,14 @@ async function deleteGroup(g) {
 async function changeMaster() {
   let done = false;
   await ask('Change master key', [
+    {name: 'old', label: 'Current master password', type: 'password', autocomplete: 'current-password'},
+    {name: 'oldkey', label: 'Current key file', type: 'keyfile', hint: 'Only if this vault uses one now.'},
     {name: 'pw', label: 'New master password', type: 'password', required: true, generate: true, meter: true, autocomplete: 'new-password'},
     {name: 'pw2', label: 'Repeat', type: 'password', required: true, autocomplete: 'new-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: 'None = password only. ' + KEYFILE_HINT, generate: () => S.name}],
     {ok: 'Change', note: 'The vault is saved with the new master key right away. Earlier S3 versions keep the old one.',
      validate: async v => {
+       if (!(await Vault.isMasterKey(S.db, v.old, v.oldkey))) return 'The current master password (or key file) is wrong';
        if (v.pw !== v.pw2) return 'The passwords do not match';
        await Vault.setMasterKey(S.db, v.pw, v.key); done = true;
      }});

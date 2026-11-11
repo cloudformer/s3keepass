@@ -115,7 +115,8 @@ tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
 .empty .big .safe { width: 44px; height: 44px; }
 .list-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); justify-content: space-between; }
 .list-head .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.list-head { flex-wrap: wrap; }
+/* both screens: the title and count on the first line, the actions always on the second (same height everywhere) */
+.list-head { flex-direction: column; align-items: stretch; gap: 8px; }
 .list-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .list-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .list-body { flex: 1; overflow: auto; }

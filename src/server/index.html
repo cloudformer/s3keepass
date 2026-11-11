@@ -119,6 +119,8 @@ tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
 .list-body { flex: 1; overflow: auto; }
 .list-body tr.row { cursor: default; }
 .list-body td.t { font-weight: 500; }
+.tick { width: 28px; padding-right: 0; }
+.tick input { width: 15px; height: 15px; cursor: pointer; }
 .banner { padding: 10px 14px; border-bottom: 1px solid var(--warn-line); background: var(--warn-bg); display: flex; gap: 10px;
   align-items: center; flex-wrap: wrap; font-size: 13px; }
 .banner b { color: var(--err); }
@@ -322,7 +324,9 @@ const Vault = (() => {
   }
   // delete = move to the recycle bin, as KeePassXC does; from inside the bin it is permanent
   function remove(db, item) { if (inRecycleBin(db, item)) db.move(item, null); else db.remove(item); }
-  return {create, open, save, setMasterKey, isMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin, inRecycleBin, remove};
+  function moveEntries(db, entries, group) { for (const e of entries) if (e.parentGroup !== group) db.move(e, group); }
+  return {create, open, save, setMasterKey, isMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin,
+          inRecycleBin, remove, moveEntries};
 })();
 </script>
 <script>
@@ -830,7 +834,7 @@ async function unlock(v) {
 }
 
 function openDb({name, folder = '', db, etag}) {
-  S = {name, folder, db, etag, group: db.getDefaultGroup(), entry: null, search: '', open: new Set(), conflict: null, saved: null, error: null};
+  S = {name, folder, db, etag, group: db.getDefaultGroup(), entry: null, ticked: new Set(), search: '', open: new Set(), conflict: null, saved: null, error: null};
   S.open.add(S.group.uuid.id);
   $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false; $('#lock').hidden = false;
   $('#signout').hidden = true;   // inside a vault the way out is Lock; Sign out is on the vault-file list only
@@ -928,6 +932,7 @@ function renderVault() {
     {icon: '＋', label: 'New group', title: 'New group inside this group', disabled: ro || inBin, do: () => groupDialog(null)},
     {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
     {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)},
+    {icon: '⇢', label: 'Move to…', title: 'Move the ticked entries (or the selected one) to another group', disabled: ro || !movable().length, do: moveDialog},
     '|',
     {icon: '👤', label: 'Copy user', title: 'Copy the user name (⌘B)', disabled: !S.entry, do: () => copyField('username')},
     {icon: '🔑', label: 'Copy password', title: 'Copy the password (⌘C)', disabled: !S.entry, do: () => copyField('password')},
@@ -944,7 +949,7 @@ function renderTree(ro) {
     const kids = g.groups.filter(x => x !== bin).concat(depth === 0 && bin ? [bin] : []);   // the bin last, like KeePassXC
     const open = S.open.has(g.uuid.id);
     const row = h('div', {class: 'node' + (g === S.group && !S.search ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
-        onclick: () => { S.group = g; S.entry = null; S.search = ''; $('#search').value = ''; S.open.add(g.uuid.id); renderVault(); },
+        onclick: () => { S.group = g; S.entry = null; S.ticked.clear(); S.search = ''; $('#search').value = ''; S.open.add(g.uuid.id); renderVault(); },
         ondblclick: () => { if (!ro && g !== bin && depth > 0) groupDialog(g); }},
       h('span', {class: 'caret', onclick: e => { e.stopPropagation(); open ? S.open.delete(g.uuid.id) : S.open.add(g.uuid.id); renderVault(); }},
         kids.length ? (open ? '▾' : '▸') : ''),
@@ -974,6 +979,7 @@ function renderTree(ro) {
 function renderList(ro) {
   const list = visibleEntries(), searching = !!S.search.trim();
   if (S.entry && !list.includes(S.entry)) S.entry = null;
+  for (const e of [...S.ticked]) if (!list.includes(e)) S.ticked.delete(e);
   const head = h('div', {class: 'list-head'},
     h('span', {class: 'title', text: searching ? `Search: ${S.search}` : groupPath(S.group).slice(1).join(' / ') || S.group.name}),
     h('span', {class: 'muted'}, `${list.length} ${list.length === 1 ? 'entry' : 'entries'}`));
@@ -987,6 +993,8 @@ function renderList(ro) {
     let host = f.url; try { host = new URL(f.url).host || f.url; } catch (x) {}
     return h('tr', {class: 'row' + (e === S.entry ? ' sel' : ''), onclick: () => { S.entry = e; renderVault(); },
         ondblclick: () => { if (!ro) entryDialog(e); }},
+      h('td', {class: 'tick'}, h('input', {type: 'checkbox', checked: S.ticked.has(e), disabled: ro,
+        onclick: ev => ev.stopPropagation(), onchange: ev => { ev.target.checked ? S.ticked.add(e) : S.ticked.delete(e); renderVault(); }})),
       h('td', {class: 't'}, '🔑 ', f.title || '(no title)'),
       h('td', {}, f.username),
       h('td', {class: 'muted'}, host),
@@ -994,7 +1002,10 @@ function renderList(ro) {
       h('td', {class: 'muted'}, e.times.lastModTime ? e.times.lastModTime.toLocaleDateString() : ''));
   });
   const body = list.length ? h('table', {},
-    h('tr', {}, h('th', {}, 'Title'), h('th', {}, 'User name'), h('th', {}, 'URL'), searching ? h('th', {}, 'Group') : null, h('th', {}, 'Modified')),
+    h('tr', {}, h('th', {class: 'tick'}, h('input', {type: 'checkbox', title: 'Tick all', disabled: ro,
+        checked: list.length > 0 && list.every(e => S.ticked.has(e)),
+        onchange: ev => { for (const e of list) ev.target.checked ? S.ticked.add(e) : S.ticked.delete(e); renderVault(); }})),
+      h('th', {}, 'Title'), h('th', {}, 'User name'), h('th', {}, 'URL'), searching ? h('th', {}, 'Group') : null, h('th', {}, 'Modified')),
     rows) : h('div', {class: 'empty'}, searching ? 'No match.' : Vault.inRecycleBin(S.db, S.group) ? 'Nothing in here.' :
       h('div', {}, 'No entries in this group.', ro ? null : h('div', {style: 'margin-top:10px'},
         h('button', {class: 'btn primary', onclick: () => entryDialog(null)}, '＋ New entry'), ' ',
@@ -1076,6 +1087,26 @@ async function entryDialog(entry) {
     custom: rows.filter(x => x.name.value.trim()).map(x => ({name: x.name.value.trim(), value: x.value.value, protected: x.prot.checked}))};
   if (entry) Vault.editEntry(entry, values);
   else S.entry = Vault.addEntry(S.db, S.group, values);
+  changed();
+}
+
+// ---- move entries: the ticked ones, else the selected one, to a group chosen from the vault's tree ----
+const movable = () => S.ticked.size ? [...S.ticked] : S.entry ? [S.entry] : [];
+async function moveDialog() {
+  const entries = movable(), bin = Vault.recycleBin(S.db);
+  const groups = [];
+  const walk = (g, depth) => { if (g === bin) return; groups.push([g, depth]); for (const k of g.groups) walk(k, depth + 1); };
+  walk(S.db.getDefaultGroup(), 0);
+  const pick = h('select', {style: 'width:100%;padding:6px'}, groups.map(([g, d], i) =>
+    h('option', {value: i, disabled: entries.every(e => e.parentGroup === g)}, '\u00a0\u00a0'.repeat(d) + (d ? '🗂 ' : '') + (g.name || '(root)'))));
+  pick.value = String(groups.findIndex(([g]) => !entries.every(e => e.parentGroup === g)));
+  const n = entries.length, what = n === 1 ? `"${Vault.fields(entries[0]).title || '(no title)'}"` : `${n} entries`;
+  const r = await ask(`Move ${what}`, [{el: h('div', {class: 'f'}, h('label', {}, 'To group'), pick)}], {ok: 'Move'});
+  if (!r || !S || S.conflict || pick.value === '-1') return;
+  const to = groups[+pick.value][0];
+  Vault.moveEntries(S.db, entries, to);
+  S.ticked.clear(); S.entry = null;
+  toast(`Moved ${what} to ${to.name || 'the root'}`);
   changed();
 }
 

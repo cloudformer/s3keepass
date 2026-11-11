@@ -90,6 +90,19 @@ def test_edits_in_keepassxc_are_seen_by_s3keepass(kx, ours, box):
     assert github["username"] == "fz-renamed" and github["history"] == 1
 
 
+def test_entries_moved_in_s3keepass(kx, ours, box):
+    """Data | move entries to another group (several at once) in s3keepass | KeePassXC finds them there, nowhere else, unchanged"""
+    f, out = box.box("库1.kdbx"), box.box("out.kdbx")
+    ours.create(f, PW, TREE)
+    ours.edit(f, PW, [["moveEntries", ["工作/github", "root entry"], "库2 (家)"]], out)
+    theirs = kx.tree(out, PW)
+    assert ours.tree(out, PW) == theirs
+    home = next(g for g in theirs["groups"] if g["name"] == "库2 (家)")
+    assert sorted(e["title"] for e in home["entries"]) == ["github", "root entry", "wifi"]
+    assert theirs["entries"] == [] and next(g for g in theirs["groups"] if g["name"] == "工作")["entries"] == []
+    assert next(e for e in home["entries"] if e["title"] == "github")["password"] == "gh-xyz"
+
+
 def test_groups_deleted_in_s3keepass_go_to_the_recycle_bin(kx, ours, box):
     """Data | delete a group in s3keepass | KeePassXC finds it, with its entries, in the recycle bin"""
     f, out = box.box("库1.kdbx"), box.box("out.kdbx")

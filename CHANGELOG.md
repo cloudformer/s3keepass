@@ -35,6 +35,9 @@
 - Bigger copy / reveal buttons next to user name, password and the other fields. The password generator opens at
   20 characters every time.
 
+- Move entries between groups: tick them (or select one), Move to…, pick the group. KeePassXC reads the moved
+  entries in their new group, unchanged (compatibility test).
+
 ## 0.1.0 — 2026-10-29
 
 First release: the web UI replaces a local KeePass client.

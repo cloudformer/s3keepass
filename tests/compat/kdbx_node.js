@@ -13,7 +13,7 @@
 // tree.json: {"groups": [{"name", "groups": [...], "entries": [...]}], "entries": [{title, username, password,
 // url, notes, tags, custom: [{name, value, protected}]}]}. ops.json: [["addGroup", "A/B"], ["renameGroup",
 // "A/B", "C"], ["removeGroup", "A"], ["addEntry", "A", {...}], ["editEntry", "A/title", {...}],
-// ["removeEntry", "A/title"], ["setMasterKey", "new password", "<key file or null>"]]. Paths are below the root group, "" is the root.
+// ["removeEntry", "A/title"], ["moveEntries", ["A/title", ...], "B"], ["setMasterKey", "new password", "<key file or null>"]]. Paths are below the root group, "" is the root.
 // Exit 2 with {"error": "InvalidKey"} when the password (or a key file) does not open the vault.
 'use strict';
 const fs = require('fs');
@@ -114,6 +114,7 @@ async function main() {
       else if (op === 'addEntry') Vault.addEntry(db, find(db, p), x);
       else if (op === 'editEntry') Vault.editEntry(find(db, p, 'entry'), Object.assign(Vault.fields(find(db, p, 'entry')), x));
       else if (op === 'removeEntry') Vault.remove(db, find(db, p, 'entry'));
+      else if (op === 'moveEntries') Vault.moveEntries(db, p.map(e => find(db, e, 'entry')), find(db, x, 'group'));
       else if (op === 'setMasterKey') await Vault.setMasterKey(db, p, x ? read(x) : null);
       else throw new Error(`unknown op ${op}`);
     }

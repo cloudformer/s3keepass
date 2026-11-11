@@ -96,6 +96,12 @@ tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
 #tree { border-right: 1px solid var(--line); padding: 8px 0; background: var(--panel2); }
 #list { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
 #detail { padding: 18px 20px; }
+.file-card { margin: 0 10px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
+.file-card .kind { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
+.file-card .path { margin: 4px 0 2px; font-size: 13px; overflow-wrap: anywhere; }
+.file-card .path .folder { color: var(--faint); }
+.file-card .meta { font-size: 11px; color: var(--faint); }
+.file-card a { font-size: 12px; }
 .pane-title { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
   padding: 6px 10px 6px 14px; display: flex; align-items: center; gap: 2px; }
 .tree ul { list-style: none; }
@@ -549,7 +555,7 @@ addEventListener('focus', () => { if (clearOnFocus) clearClipboard(); });
 
 // ================ the app ================
 // S = the open vault: db is the decrypted database (only in this tab's memory), etag the S3 version it came from.
-let S = null, vaults = [];
+let S = null, vaults = [], me = null;   // me: the signed-in identity = my personal folder's name
 let saving = null, saveAgain = false;
 
 function toolbar(items) {
@@ -563,7 +569,9 @@ function crumbs(...parts) {
 
 // ---------------- home: the vault folder, s3://<bucket>/keepass/*.kdbx ----------------
 async function showHome() {
+  if (!me) call('GET', '/api/me').then(r => { me = r.identity; }).catch(() => {});
   $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true; $('#lock').hidden = true;
+  $('#signout').hidden = false;
   renderSaveState();
   crumbs('Vaults');
   toolbar([
@@ -706,9 +714,10 @@ async function unlock(v) {
 }
 
 function openDb({name, db, etag}) {
-  S = {name, db, etag, group: db.getDefaultGroup(), entry: null, search: '', open: new Set(), conflict: null, saved: null, error: null};
+  S = {name, folder: me || 'my folder', db, etag, group: db.getDefaultGroup(), entry: null, search: '', open: new Set(), conflict: null, saved: null, error: null};
   S.open.add(S.group.uuid.id);
   $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false; $('#lock').hidden = false;
+  $('#signout').hidden = true;   // inside a vault the way out is Lock; Sign out is on the vault-file list only
   $('#search').value = '';
   lastActive = Date.now();
   renderVault();
@@ -796,7 +805,7 @@ function visibleEntries() {
 function renderVault() {
   if (!S) return;
   const ro = !!S.conflict, inBin = Vault.inRecycleBin(S.db, S.group);
-  crumbs('Vaults', S.name);
+  crumbs('Vaults', S.folder, `${S.name}.kdbx`);
   toolbar([
     {icon: '＋', label: 'Entry', title: 'New entry in this group', disabled: ro || inBin, do: () => entryDialog(null)},
     {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
@@ -822,14 +831,19 @@ function renderTree(ro) {
         ondblclick: () => { if (!ro && g !== bin && depth > 0) groupDialog(g); }},
       h('span', {class: 'caret', onclick: e => { e.stopPropagation(); open ? S.open.delete(g.uuid.id) : S.open.add(g.uuid.id); renderVault(); }},
         kids.length ? (open ? '▾' : '▸') : ''),
-      h('span', {}, g === bin ? '🗑' : depth === 0 ? '🗄' : '📁'),
+      h('span', {}, g === bin ? '🗑' : '🗂'),   // a KeePass group, never 📁 (that is an S3 folder)
       h('span', {class: 'name', text: g.name || '(unnamed)', title: g.name || ''}),
       h('span', {class: 'count'}, entryCount(g) || ''));
     return h('li', {}, row, open && kids.length ? h('ul', {}, kids.map(k => node(k, depth + 1))) : null);
   };
   const inBin = Vault.inRecycleBin(S.db, S.group), atRoot = S.group === rootGroup;
-  $('#tree').replaceChildren(
-    h('div', {class: 'pane-title'}, 'Groups', h('span', {class: 'spacer'}),
+  const file = h('div', {class: 'file-card', title: `s3://…/vaults/${S.folder}/${S.name}.kdbx`},
+    h('div', {class: 'kind'}, 'S3 file'),
+    h('div', {class: 'path'}, h('span', {class: 'folder', text: `📁 ${S.folder} / `}), h('b', {text: `🔐 ${S.name}.kdbx`})),
+    h('div', {class: 'meta'}, `🔓 unlocked in this browser · ETag ${(S.etag || '').replace(/"/g, '').slice(0, 8)}`),
+    h('a', {href: '#', onclick: e => { e.preventDefault(); $('#brand').click(); }}, '← All vault files'));
+  $('#tree').replaceChildren(file,
+    h('div', {class: 'pane-title'}, 'Groups · inside this file', h('span', {class: 'spacer'}),
       h('button', {class: 'icon-btn', title: 'New group inside the selected one', disabled: ro || inBin, onclick: () => groupDialog(null)}, '＋'),
       h('button', {class: 'icon-btn', title: 'Rename the group', disabled: ro || atRoot || S.group === bin, onclick: () => groupDialog(S.group)}, '✎'),
       h('button', {class: 'icon-btn', title: 'Delete the group', disabled: ro || atRoot, onclick: () => deleteGroup(S.group)}, '🗑')),

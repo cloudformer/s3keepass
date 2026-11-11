@@ -46,6 +46,9 @@ a { color: var(--accent); }
   cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .tb:hover:not(:disabled) { background: rgba(255,255,255,.1); }
 .tb:disabled { opacity: .35; cursor: default; }
+#lock { background: #f59e0b; color: #111827; border-color: #f59e0b; font-weight: 600; padding: 5px 12px; }
+#lock:hover { background: #fbbf24; }
+#lock .lbl { display: inline !important; }
 .sep { width: 1px; height: 20px; background: rgba(255,255,255,.15); margin: 0 4px; }
 .spacer { flex: 1; }
 .search { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); border-radius: 6px;
@@ -73,12 +76,14 @@ a { color: var(--accent); }
 .tag { display: inline-block; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px; padding: 0 8px;
   font-size: 12px; margin: 0 4px 4px 0; }
 
-/* ---- home: the vault folder ---- */
-#home { flex: 1; overflow: auto; padding: 28px; }
-.folder { max-width: 1000px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
-.folder-head { display: flex; align-items: center; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-.folder-head h2 { font-size: 17px; font-weight: 600; }
-.folder-head .path { font: 12px var(--mono); color: var(--muted); }
+/* ---- both screens share one layout: tree | list | details. Vault files (S3): folders | files | file.
+   An open vault (KeePass): groups | entries | entry. ---- */
+#home { flex: 1; display: grid; grid-template-columns: 250px minmax(0, 1fr) 360px; min-height: 0; }
+#ftree { border-right: 1px solid var(--line); padding: 8px 0; background: var(--panel2); }
+#flist { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
+#fdetail { padding: 18px 20px; }
+.rec { font-size: 12px; padding: 4px 0; border-bottom: 1px dashed var(--line); display: flex; gap: 6px; }
+.rec .when { color: var(--faint); white-space: nowrap; }
 table { width: 100%; border-collapse: collapse; }
 th { text-align: left; font-size: 12px; font-weight: 600; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid var(--line);
   background: var(--panel2); white-space: nowrap; position: sticky; top: 0; z-index: 1; }
@@ -96,12 +101,6 @@ tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
 #tree { border-right: 1px solid var(--line); padding: 8px 0; background: var(--panel2); }
 #list { border-right: 1px solid var(--line); display: flex; flex-direction: column; }
 #detail { padding: 18px 20px; }
-.file-card { margin: 0 10px 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); }
-.file-card .kind { font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint); }
-.file-card .path { margin: 4px 0 2px; font-size: 13px; overflow-wrap: anywhere; }
-.file-card .path .folder { color: var(--faint); }
-.file-card .meta { font-size: 11px; color: var(--faint); }
-.file-card a { font-size: 12px; }
 .pane-title { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--faint);
   padding: 6px 10px 6px 14px; display: flex; align-items: center; gap: 2px; }
 .tree ul { list-style: none; }
@@ -161,6 +160,8 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 .meter { height: 4px; border-radius: 2px; background: var(--line); margin-top: 6px; overflow: hidden; }
 .meter i { display: block; height: 100%; width: 0; transition: width .2s, background .2s; }
 .dlg-err { color: var(--err); font-size: 13px; min-height: 18px; margin-top: 10px; }
+.dlg-err.busy { color: var(--muted); }   /* in progress (Unlocking …): grey; failed: red; done: green */
+.dlg-err.done { color: var(--ok); }
 .dlg-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
 .dlg-actions .left { margin-right: auto; }
 .gen-out { font: 17px var(--mono); padding: 12px; border: 1px solid var(--line2); border-radius: 8px; background: var(--panel2);
@@ -176,13 +177,12 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 .toast.bad { background: var(--err); }
 
 @media (max-width: 1000px) {
-  #vault { grid-template-columns: 200px minmax(0, 1fr); }
-  #detail { grid-column: 1 / -1; border-top: 1px solid var(--line); max-height: 45vh; }
+  #vault, #home { grid-template-columns: 200px minmax(0, 1fr); }
+  #detail, #fdetail { grid-column: 1 / -1; border-top: 1px solid var(--line); max-height: 45vh; }
 }
 @media (max-width: 640px) {
-  #home { padding: 12px; }
-  #vault { grid-template-columns: 1fr; overflow: auto; }
-  #tree { max-height: 30vh; border-right: none; border-bottom: 1px solid var(--line); }
+  #vault, #home { grid-template-columns: 1fr; overflow: auto; }
+  #tree, #ftree { max-height: 30vh; border-right: none; border-bottom: 1px solid var(--line); }
   .search { width: 100%; order: 10; }
   .tb .lbl { display: none; }
 }
@@ -196,12 +196,16 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
   <div class="tools" id="tools"></div>
   <div class="spacer"></div>
   <input class="search" id="search" type="search" placeholder="Search entries (⌘F)" autocomplete="off" hidden>
-  <button class="tb" id="lock" title="Lock (⌘L); also after 5 minutes idle" hidden>🔒 <span class="lbl">Lock</span></button>
+  <button class="tb" id="lock" title="Lock (⌘L): forget the decrypted vault in this tab; also after 5 minutes idle" hidden>🔒 <span class="lbl" id="lock-lbl">Lock</span></button>
   <span class="chip" id="host" title="Endpoint"></span>
   <button class="tb" id="signout" title="Forget this deployment's sign-in (HTTP Basic) on this browser">Sign out</button>
 </header>
 
-<main id="home"></main>
+<main id="home">
+  <aside class="pane tree" id="ftree"></aside>
+  <section class="pane" id="flist"></section>
+  <section class="pane" id="fdetail"></section>
+</main>
 <main id="vault" hidden>
   <aside class="pane tree" id="tree"></aside>
   <section class="pane" id="list"></section>
@@ -296,8 +300,9 @@ const Vault = (() => {
 <script>
 // ---------------- shell: DOM helper, sign-in (HTTP Basic), every server call, history ----------------
 const $ = s => document.querySelector(s);
-const IDLE_LOCK_MIN = 5, CLIPBOARD_CLEAR_S = 30, MAX_BYTES = 5 * 1024 * 1024;
+const IDLE_LOCK_MIN = 5, CLIPBOARD_CLEAR_S = 30, MAX_BYTES = 4718592;   // 4.5 MB, the server's limit
 const NAME_RE = /^[\p{L}\p{N}_](?:[\p{L}\p{N}_ .()-]{0,62}[\p{L}\p{N}_.()-])?$/u;   // = lambda_function.NAME
+const FOLDER_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_@.+-]{0,127}$/u;            // = lambda_function.FOLDER
 
 // h('div', {class: 'x', onclick: f}, child, 'text') — user data only ever becomes text, never HTML
 function h(tag, attrs, ...kids) {
@@ -374,8 +379,10 @@ async function call(method, path, opts = {}) {
   log(`${what} · ${ms} ms (server ${data.ms} ms)${data.backend ? ' · ' + data.backend : ''}`, 'ok');
   return data;
 }
-const vaultPath = name => '/api/vaults/' + encodeURIComponent(name);
-const putVault = (name, bytes, cond) => call('PUT', vaultPath(name), {body: bytes,
+const vaultPath = (name, folder = '') => folder ? `/api/files/${encodeURIComponent(folder)}/${encodeURIComponent(name)}`
+                                                : '/api/vaults/' + encodeURIComponent(name);
+const s3Path = (name, folder = '') => `keepass/${folder ? folder + '/' : ''}${name}.kdbx`;
+const putVault = (name, bytes, cond, action, folder = '') => call('PUT', vaultPath(name, folder) + (action ? '?action=' + action : ''), {body: bytes,
   headers: Object.assign({'content-type': 'application/octet-stream'}, cond)});
 
 async function signIn() {
@@ -393,7 +400,7 @@ $('#signout').addEventListener('click', async () => { await lock(); if (S) retur
 
 // ---------------- dialogs: one <dialog> per question, stacked (the generator opens over the entry editor) ----------------
 // fields: {name, label, type: text|password|textarea|checkbox, value, required, hint, generate, meter} or {el}
-// opts: {ok (false = no OK button), cancel, danger, note, wide, extra, busy, ctl,
+// opts: {ok (false = no OK button), cancel, danger, note, wide, extra, busy, done (shown green for a moment), ctl,
 //        validate(values) -> error text | null — may be async; the dialog stays open and shows the error}
 const dialogOpen = () => !!document.querySelector('dialog[open]');
 function ask(title, fields, opts = {}) {
@@ -415,12 +422,14 @@ function ask(title, fields, opts = {}) {
       const vals = {};
       for (const [k, el] of Object.entries(inputs)) vals[k] = el.type === 'checkbox' ? el.checked : el.type === 'file' ? el.keyFile : el.value;
       const missing = fields.find(f => f.required && !String(vals[f.name] || '').trim());
+      err.classList.remove('busy', 'done');
       if (missing) { err.textContent = `${missing.label} is required`; inputs[missing.name].focus(); return; }
       if (opts.validate) {
-        okBtn.disabled = true; err.textContent = opts.busy || '';
+        okBtn.disabled = true; err.textContent = opts.busy || ''; err.classList.add('busy');
         try { const msg = await opts.validate(vals); if (msg) { err.textContent = msg; return; } }
         catch (x) { err.textContent = x.message; return; }
-        finally { okBtn.disabled = false; }
+        finally { okBtn.disabled = false; err.classList.remove('busy'); }
+        if (opts.done) { err.textContent = '✓ ' + opts.done; err.classList.add('done'); await new Promise(r => setTimeout(r, 500)); }
       }
       finish(vals);
     });
@@ -567,39 +576,94 @@ function crumbs(...parts) {
     i === parts.length - 1 ? h('b', {text: p}) : h('span', {text: p})]).filter(Boolean));
 }
 
-// ---------------- home: the vault folder, s3://<bucket>/keepass/*.kdbx ----------------
+// ---------------- vault files: folders | files | file — the same layout as an open vault ----------------
+let F = {folder: '', file: null, folders: []};   // the file page: selected folder and file
+
 async function showHome() {
   $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true; $('#lock').hidden = true;
   $('#signout').hidden = false;
   renderSaveState();
-  crumbs('Vaults');
+  try { F.folders = (await call('GET', '/api/tree')).folders; }
+  catch (e) { $('#flist').replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, '⚠'), e.message)); return; }
+  if (!F.folders.some(f => f.name === F.folder)) F.folder = '';
+  const files = F.folders.find(f => f.name === F.folder).files;
+  F.file = F.file && files.find(x => x.name === F.file.name) || null;
+  vaults = files;   // checkName: no two vaults with one name in a folder
+  renderHome();
+}
+
+function renderHome() {
+  const files = F.folders.find(f => f.name === F.folder).files, v = F.file;
+  crumbs('Vaults', ...(F.folder ? [F.folder] : []));
   toolbar([
-    {icon: '＋', label: 'New vault', do: newVault},
-    {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file (KeePassXC, KeePass, KeeWeb …)', do: () => $('#file').click()},
+    {icon: '＋', label: 'New vault', title: 'New vault in this folder', do: newVault},
+    {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file to this folder', do: () => $('#file').click()},
+    {icon: '📁', label: 'New folder', title: 'A folder under keepass/; it stays once a vault is saved in it', do: newFolder},
+    '|',
+    {icon: '🔓', label: 'Open', title: 'Unlock the vault (Enter)', disabled: !v, do: () => unlock(v)},
+    {icon: '🕘', label: 'Versions', disabled: !v, do: () => versionsDialog(v)},
+    {icon: '🗑', label: 'Delete', disabled: !v, do: () => deleteVault(v)},
+    '|',
     {icon: '↻', label: 'Refresh', do: showHome},
   ]);
-  try { vaults = (await call('GET', '/api/vaults')).vaults; }
-  catch (e) { $('#home').replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, '⚠'), e.message)); return; }
-  const head = h('div', {class: 'folder-head'},
-    h('div', {}, h('h2', {text: 'Vaults'}),
-      h('div', {class: 'path', text: 'keepass/*.kdbx · KDBX 4, decrypted only in your browser · SSE-KMS at rest · every save versioned'})),
-    h('div', {class: 'spacer'}),
-    h('button', {class: 'btn', onclick: () => $('#file').click()}, '⤒ Upload .kdbx'),
-    h('button', {class: 'btn primary', onclick: newVault}, '＋ New vault'));
-  const body = vaults.length ? h('table', {},
-    h('tr', {}, h('th', {}, 'Name'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {})),
-    vaults.map(v => h('tr', {class: 'row'},
-      h('td', {}, h('div', {class: 'vault-name', onclick: () => unlock(v), title: 'Open'}, h('span', {class: 'kdbx'}, '🔐'), v.name)),
-      h('td', {class: 'muted'}, size(v.size)),
-      h('td', {class: 'muted'}, when(v.modified)),
-      h('td', {}, h('div', {class: 'actions'},
-        h('button', {class: 'btn sm primary', onclick: () => unlock(v)}, 'Open'),
-        h('button', {class: 'btn sm', title: 'Download the .kdbx (opens in KeePassXC)', onclick: () => download(v.name)}, '⤓'),
-        h('button', {class: 'btn sm', title: 'Versions', onclick: () => versionsDialog(v)}, '🕘'),
-        h('button', {class: 'btn sm', title: 'Delete', onclick: () => deleteVault(v)}, '🗑')))))) :
-    h('div', {class: 'empty'}, h('div', {class: 'big'}, '🗄'),
-      h('div', {}, 'No vaults yet.'), h('div', {class: 'muted'}, 'Create one, or upload a .kdbx from KeePassXC.'));
-  $('#home').replaceChildren(h('div', {class: 'folder'}, head, body));
+  // left: S3 folders
+  const node = (f, depth) => h('div', {class: 'node' + (f.name === F.folder ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
+      onclick: () => { F.folder = f.name; F.file = null; vaults = f.files; renderHome(); }},
+    h('span', {class: 'caret'}, depth === 0 && F.folders.length > 1 ? '▾' : ''), h('span', {}, '📁'),
+    h('span', {class: 'name', text: f.name || 'keepass'}), h('span', {class: 'count'}, f.files.length || ''));
+  $('#ftree').replaceChildren(h('div', {class: 'pane-title'}, 'Folders · S3'),
+    node(F.folders[0], 0), ...F.folders.slice(1).map(f => node(f, 1)));
+  // middle: the vault files in the folder
+  const unlockMark = u => !u ? '' : `${u.ok ? '✓' : '✗'} ${when(u.at)}`;
+  const rows = files.map(x => h('tr', {class: 'row' + (v && x.name === v.name ? ' sel' : ''),
+      onclick: () => { F.file = x; renderHome(); }, ondblclick: () => unlock(x)},
+    h('td', {class: 't'}, '🔐 ', `${x.name}.kdbx`), h('td', {class: 'muted'}, x.owner || '—'),
+    h('td', {class: 'muted'}, size(x.size)), h('td', {class: 'muted'}, when(x.modified)),
+    h('td', {class: 'muted'}, unlockMark(x.last_unlock))));
+  $('#flist').replaceChildren(
+    h('div', {class: 'list-head'}, h('span', {class: 'title', text: s3Path('', F.folder).replace(/\.kdbx$/, '')}),
+      h('span', {class: 'muted'}, `${files.length} vault ${files.length === 1 ? 'file' : 'files'}`)),
+    h('div', {class: 'list-body'}, files.length ? h('table', {},
+      h('tr', {}, h('th', {}, 'File'), h('th', {}, 'Owner'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {}, 'Last unlock')), rows)
+      : h('div', {class: 'empty'}, 'No vault files in this folder — ＋ New vault or ⤒ Upload in the toolbar.')));
+  // right: the selected file
+  const el = $('#fdetail');
+  if (!v) { el.replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, '🔐'), 'Select a vault file')); return; }
+  const info = (k, val) => h('div', {class: 'field'}, h('div', {class: 'k', text: k}), h('div', {class: 'v'}, h('span', {class: 'val', text: val})));
+  const recs = h('div', {}, h('button', {class: 'btn sm', onclick: () => showRecords(v, recs)}, 'Show access records'));
+  el.replaceChildren(
+    h('div', {class: 'd-title', text: `🔐 ${v.name}.kdbx`}),
+    h('div', {class: 'd-path', text: `s3://…/${v.path} · encrypted (KDBX 4), decrypted only in your browser`}),
+    info('Owner', v.owner || '—'), info('Size', size(v.size)), info('Modified', when(v.modified)),
+    info('Last unlock', v.last_unlock ? `${v.last_unlock.ok ? 'succeeded' : 'failed'} · ${v.last_unlock.who} · ${when(v.last_unlock.at)}` : '—'),
+    h('div', {class: 'd-actions'}, h('button', {class: 'btn primary', onclick: () => unlock(v)}, '🔓 Open')),
+    h('div', {class: 'field'}, h('div', {class: 'k', text: 'Access records'}), recs));
+}
+
+// a folder is only a name in a vault's path: S3 keeps no empty folders, so a new one lives in this page until a
+// vault is created or uploaded into it (keepass/<folder>/<name>.kdbx)
+async function newFolder() {
+  const r = await ask('New folder', [{name: 'name', label: 'Folder name', required: true,
+      hint: 'Under keepass/. Letters, digits, @ . + - _ — e.g. shared, frank, team-ops'}],
+    {ok: 'Create', note: 'It stays once you create or upload a vault into it.',
+     validate: async v => {
+       const name = v.name.trim();
+       if (!FOLDER_RE.test(name) || name.includes('..')) return 'Folder: letters, digits, @ . + - _, at most 128, not starting with "."';
+       if (F.folders.some(f => f.name === name)) return `A folder named "${name}" already exists`;
+     }});
+  if (!r) return;
+  const name = r.name.trim();
+  F.folders.push({name, path: `keepass/${name}/`, files: []});
+  F.folder = name; F.file = null; vaults = [];
+  renderHome();
+}
+
+async function showRecords(v, box) {
+  let data;
+  try { data = await call('GET', '/api/audit?limit=20&path=' + encodeURIComponent(v.path)); } catch (e) { return toast(e.message, true); }
+  box.replaceChildren(...(data.records.length ? data.records.map(r => h('div', {class: 'rec'},
+    h('span', {class: 'when', text: when(r.at)}), h('b', {text: r.action}), h('span', {text: r.who}),
+    r.action === 'unlock' ? h('span', {class: r.ok ? 'ok' : 'err', text: r.ok ? '✓' : '✗ (self-reported)'}) : null)) : [h('div', {class: 'muted'}, 'No records yet.')]));
 }
 
 function checkName(name) {
@@ -611,19 +675,19 @@ function checkName(name) {
 async function newVault() {
   let made = null;
   const r = await ask('New vault', [
-    {name: 'name', label: 'Name', required: true, hint: 'Stored as keepass/<name>.kdbx'},
+    {name: 'name', label: 'Name', required: true, hint: `Stored as ${s3Path('<name>', F.folder)}`},
     {name: 'pw', label: 'Master password', type: 'password', required: true, generate: true, meter: true, autocomplete: 'new-password'},
     {name: 'pw2', label: 'Repeat master password', type: 'password', required: true, autocomplete: 'new-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: KEYFILE_HINT, generate: () => $('dialog[open] input').value.trim()}],
-    {ok: 'Create', busy: 'Encrypting (Argon2id) …', note: 'The master password never leaves this browser. ' +
+    {ok: 'Create', busy: 'Encrypting (Argon2id) …', done: 'Created', note: 'The master password never leaves this browser. ' +
        'There is no recovery: if you forget it, the vault cannot be opened.',
      validate: async v => {
        const name = v.name.trim();
        const bad = checkName(name) || (v.pw !== v.pw2 ? 'The passwords do not match' : null);
        if (bad) return bad;
        const db = await Vault.create(name, v.pw, v.key);
-       const res = await putVault(name, await Vault.save(db), {'if-none-match': '*'});
-       made = {name, db, etag: res.etag};
+       const res = await putVault(name, await Vault.save(db), {'if-none-match': '*'}, '', F.folder);
+       made = {name, folder: F.folder, db, etag: res.etag};
      }});
   if (r && made) openDb(made);
 }
@@ -635,23 +699,17 @@ $('#file').addEventListener('change', async e => {
   const sig = new Uint8Array(bytes.slice(0, 4));
   if (sig.length < 4 || sig[0] !== 0x03 || sig[1] !== 0xd9 || sig[2] !== 0xa2 || sig[3] !== 0x9a)
     return toast(`${file.name} is not a KeePass file`, true);
-  if (bytes.byteLength > MAX_BYTES) return toast('A vault is at most 5 MB', true);
+  if (bytes.byteLength > MAX_BYTES) return toast('A vault is at most 4.5 MB', true);
   const r = await ask('Upload a KeePass file', [
     {name: 'name', label: 'Vault name', required: true, value: file.name.replace(/\.kdbx$/i, ''), hint: `${file.name} · ${size(bytes.byteLength)}`}],
     {ok: 'Upload', note: 'Stored as it is (still encrypted); it opens here with its master password (and key file, if it has one).',
      validate: async v => {
        const bad = checkName(v.name.trim()); if (bad) return bad;
-       await putVault(v.name.trim(), bytes, {'if-none-match': '*'});
+       await putVault(v.name.trim(), bytes, {'if-none-match': '*'}, 'upload', F.folder);
      }});
   if (r) { toast(`Uploaded ${r.name.trim()}`); showHome(); }
 });
 
-async function download(name, version) {
-  try {
-    const {bytes} = await call('GET', vaultPath(name) + (version ? '?version=' + encodeURIComponent(version) : ''), {raw: true});
-    saveFile(bytes, `${name}${version ? ' (' + version.slice(0, 8) + ')' : ''}.kdbx`);
-  } catch (e) { toast(e.message, true); }
-}
 function saveFile(bytes, filename) {
   const a = h('a', {href: URL.createObjectURL(new Blob([bytes], {type: 'application/octet-stream'})), download: filename});
   document.body.append(a); a.click(); a.remove();
@@ -664,21 +722,21 @@ async function deleteVault(v) {
        'so it can still be recovered from the S3 console.',
      validate: async x => {
        if (x.confirm !== v.name) return 'The name does not match';
-       await call('DELETE', vaultPath(v.name), {headers: {'if-match': v.etag}});
+       await call('DELETE', vaultPath(v.name, v.folder), {headers: {'if-match': v.etag}});
      }});
   if (r) { toast(`Deleted ${v.name}`); showHome(); }
 }
 
 async function versionsDialog(v) {
   let data;
-  try { data = await call('GET', vaultPath(v.name) + '/versions'); } catch (e) { return toast(e.message, true); }
+  try { data = await call('GET', vaultPath(v.name, v.folder) + '/versions'); } catch (e) { return toast(e.message, true); }
   const current = data.versions.find(x => x.latest && !x.deleted), ctl = {};
   const restore = async x => {
     if (!(await confirmDlg(`Restore this version of ${v.name}?`, `The version saved ${when(x.modified)} becomes the current one; ` +
       'the current one stays in the list.', 'Restore'))) return;
     try {
-      const {bytes} = await call('GET', vaultPath(v.name) + '?version=' + encodeURIComponent(x.version_id), {raw: true});
-      await putVault(v.name, bytes, current ? {'if-match': current.etag} : {'if-none-match': '*'});
+      const {bytes} = await call('GET', vaultPath(v.name, v.folder) + '?version=' + encodeURIComponent(x.version_id), {raw: true});
+      await putVault(v.name, bytes, current ? {'if-match': current.etag} : {'if-none-match': '*'}, '', v.folder);
     } catch (e) { return toast(e.message, true); }
     ctl.close(); toast('Restored'); showHome();
   };
@@ -689,7 +747,6 @@ async function versionsDialog(v) {
         x.deleted ? h('span', {class: 'tag'}, 'deleted') : null),
       h('td', {class: 'muted'}, x.deleted ? '' : size(x.size)),
       h('td', {}, x.deleted ? null : h('div', {class: 'actions'},
-        h('button', {class: 'btn sm', type: 'button', title: 'Download this version', onclick: () => download(v.name, x.version_id)}, '⤓'),
         x.latest ? null : h('button', {class: 'btn sm', type: 'button', onclick: () => restore(x)}, 'Restore'))))));
   await ask(`Versions of ${v.name}`, [{el: h('div', {style: 'max-height:55vh;overflow:auto;margin-top:8px'}, table)}],
     {ok: false, cancel: 'Close', wide: true, ctl, note: 'Every save is an S3 object version; the bucket keeps the newest ones (lifecycle rule).'});
@@ -698,25 +755,26 @@ async function versionsDialog(v) {
 // ---------------- unlock / lock ----------------
 async function unlock(v) {
   let file;
-  try { file = await call('GET', vaultPath(v.name), {raw: true}); } catch (e) { return toast(e.message, true); }
+  try { file = await call('GET', vaultPath(v.name, v.folder), {raw: true}); } catch (e) { return toast(e.message, true); }
   let db;
   const r = await ask(`Unlock ${v.name}`, [
     {name: 'pw', label: 'Master password', type: 'password', autocomplete: 'current-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: 'Only if this vault uses one. Read in this browser, never uploaded.'}],
-    {ok: 'Unlock', busy: 'Unlocking (Argon2) …', note: `${size(file.bytes.byteLength)} · decrypted in this browser only`,
+    {ok: 'Unlock', busy: 'Unlocking (Argon2) …', done: 'Unlocked', note: `${size(file.bytes.byteLength)} · decrypted in this browser only`,
      validate: async x => {
        if (!x.pw && !x.key) return 'Enter the master password (or choose the key file)';
        try { db = await Vault.open(file.bytes.slice(0), x.pw, x.key); }
        catch (e) { return e.code === 'InvalidKey' ? 'Wrong master password or key file' : `Cannot open: ${e.message}`; }
      }});
-  if (r && db) openDb({name: v.name, db, etag: file.etag});
+  if (r && db) openDb({name: v.name, folder: v.folder || '', db, etag: file.etag});
 }
 
-function openDb({name, db, etag}) {
-  S = {name, folder: 'keepass', db, etag, group: db.getDefaultGroup(), entry: null, search: '', open: new Set(), conflict: null, saved: null, error: null};
+function openDb({name, folder = '', db, etag}) {
+  S = {name, folder, db, etag, group: db.getDefaultGroup(), entry: null, search: '', open: new Set(), conflict: null, saved: null, error: null};
   S.open.add(S.group.uuid.id);
   $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false; $('#lock').hidden = false;
   $('#signout').hidden = true;   // inside a vault the way out is Lock; Sign out is on the vault-file list only
+  $('#lock-lbl').textContent = `Lock ${name}`;
   $('#search').value = '';
   lastActive = Date.now();
   renderVault();
@@ -756,10 +814,10 @@ function save() {
       renderSaveState('saving …');
       const bytes = await Vault.save(s.db);
       try {
-        const r = await putVault(s.name, bytes, {'if-match': s.etag});
+        const r = await putVault(s.name, bytes, {'if-match': s.etag}, '', s.folder);
         s.etag = r.etag; s.saved = new Date(); s.error = null;
       } catch (e) {
-        if (e.status === 412) { s.conflict = bytes; renderVault(); }       // refused: never overwrite another save
+        if (e.status === 409) { s.conflict = bytes; renderVault(); }       // refused: never overwrite another save
         else { s.error = e.message; toast('Not saved: ' + e.message, true); }
         return;
       }
@@ -779,8 +837,8 @@ async function downloadLocal() {
   saveFile(S.conflict || await Vault.save(S.db), `${S.name} (my copy ${new Date().toISOString().slice(0, 16).replace(':', '')}).kdbx`);
 }
 async function reopen() {
-  const name = S.name; S = null;
-  await showHome();
+  const {name, folder} = S; S = null;
+  F.folder = folder; await showHome();
   const v = vaults.find(x => x.name === name);
   if (v) unlock(v);
 }
@@ -804,7 +862,7 @@ function visibleEntries() {
 function renderVault() {
   if (!S) return;
   const ro = !!S.conflict, inBin = Vault.inRecycleBin(S.db, S.group);
-  crumbs('Vaults', S.folder, `${S.name}.kdbx`);
+  crumbs('Vaults', ...(S.folder ? [S.folder] : []), `${S.name}.kdbx`);
   toolbar([
     {icon: '＋', label: 'Entry', title: 'New entry in this group', disabled: ro || inBin, do: () => entryDialog(null)},
     {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
@@ -814,7 +872,6 @@ function renderVault() {
     {icon: '🔑', label: 'Copy password', title: 'Copy the password (⌘C)', disabled: !S.entry, do: () => copyField('password')},
     '|',
     {icon: '🎲', label: 'Generator', do: () => generatorDialog(false)},
-    {icon: '⤓', label: 'Download', title: 'Download this vault as .kdbx (opens in KeePassXC)', do: () => download(S.name)},
     {icon: '⚙', label: 'Master key', title: 'Change the master password and key file', disabled: ro, do: changeMaster},
   ]);
   renderTree(ro); renderList(ro); renderDetail(ro); renderSaveState();
@@ -836,13 +893,18 @@ function renderTree(ro) {
     return h('li', {}, row, open && kids.length ? h('ul', {}, kids.map(k => node(k, depth + 1))) : null);
   };
   const inBin = Vault.inRecycleBin(S.db, S.group), atRoot = S.group === rootGroup;
-  const file = h('div', {class: 'file-card', title: `s3://…/${S.folder}/${S.name}.kdbx`},
-    h('div', {class: 'kind'}, 'S3 file'),
-    h('div', {class: 'path'}, h('span', {class: 'folder', text: `📁 ${S.folder} / `}), h('b', {text: `🔐 ${S.name}.kdbx`})),
-    h('div', {class: 'meta'}, `🔓 unlocked in this browser · ETag ${(S.etag || '').replace(/"/g, '').slice(0, 8)}`),
-    h('a', {href: '#', onclick: e => { e.preventDefault(); $('#brand').click(); }}, '← All vault files'));
-  $('#tree').replaceChildren(file,
-    h('div', {class: 'pane-title'}, 'Groups · inside this file', h('span', {class: 'spacer'}),
+  // the same S3 tree as the file page (📁 keepass › 📁 folder › 🔐 this file), then the groups inside the file
+  const back = () => $('#brand').click();
+  const s3node = (icon, label, depth, sel, title) => h('div', {class: 'node' + (sel ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
+      title, onclick: sel ? null : back},
+    h('span', {class: 'caret'}, sel ? '' : '▾'), h('span', {}, icon), h('span', {class: 'name', text: label}),
+    sel ? h('span', {class: 'count', text: '🔓'}) : null);
+  const s3 = [h('div', {class: 'pane-title'}, 'Folders · S3'),
+    s3node('📁', 'keepass', 0, false, 'All vault files (locks this vault)'),
+    S.folder ? s3node('📁', S.folder, 1, false, 'All vault files (locks this vault)') : null,
+    s3node('🔐', `${S.name}.kdbx`, S.folder ? 2 : 1, true, `s3://…/${s3Path(S.name, S.folder)} · unlocked in this browser`)].filter(Boolean);
+  $('#tree').replaceChildren(...s3,
+    h('div', {class: 'pane-title', style: 'margin-top:10px;border-top:1px solid var(--line);padding-top:10px'}, 'Groups · inside this file', h('span', {class: 'spacer'}),
       h('button', {class: 'icon-btn', title: 'New group inside the selected one', disabled: ro || inBin, onclick: () => groupDialog(null)}, '＋'),
       h('button', {class: 'icon-btn', title: 'Rename the group', disabled: ro || atRoot || S.group === bin, onclick: () => groupDialog(S.group)}, '✎'),
       h('button', {class: 'icon-btn', title: 'Delete the group', disabled: ro || atRoot, onclick: () => deleteGroup(S.group)}, '🗑')),

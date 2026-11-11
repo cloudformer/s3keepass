@@ -17,6 +17,14 @@
   blocks the vault. The unlock result is reported by the browser (`POST /api/audit/unlock`, path and true / false
   only) — a file fetched around the page does not show up. `GET /api/audit?path=&limit=` lists a vault's records,
   newest first; `/api/tree` shows each vault's last unlock. `log_retention_days` (default 90) expires them.
+- A save that lost the race is now 409 (was 412); nothing is overwritten. Upload into a folder
+  (`?action=upload`, `If-None-Match: *`) never replaces an existing file (412). A vault is at most 4.5 MB (was 5):
+  a Function URL request is 6 MB with base64; the error says how much was sent and what to clean up.
+- One layout for both screens: vault files (S3) are folders | files | file, an open vault (KeePass) is
+  groups | entries | entry. The file page shows each file's owner, size, modified time and last unlock, and its
+  access records; New vault / Upload / Open / Versions / Delete live once, in the toolbar. An open vault shows its
+  S3 file (folder / name.kdbx) above its groups; 📁 is an S3 folder, 🗂 a KeePass group. Sign out only on the
+  file page. No download buttons (the conflict "download my copy" stays: it never leaves the browser).
 
 ## 0.1.0 — 2026-10-29
 

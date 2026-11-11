@@ -17,7 +17,8 @@ Sign-in, AUTH_METHOD:
     GET    /api/tree                          the folders under keepass/ (the top level first) and their vault files
     GET    /api/vaults                        the main folder's vaults (keepass/<name>.kdbx)
     GET    /api/vaults/<name>[?version=<id>]  the encrypted file (ETag header); an older version with ?version
-    PUT    /api/vaults/<name>                 save: If-Match <etag> (update) or If-None-Match * (create) required
+    PUT    /api/vaults/<name>[?action=upload] save: If-Match <etag> (update; changed meanwhile = 409) or
+                                              If-None-Match * (create / upload; the name exists = 412)
     DELETE /api/vaults/<name>                 If-Match <etag> required; the bucket keeps old versions
     GET    /api/vaults/<name>/versions        the file's S3 versions, newest first
     /api/files/<folder>/<name>[/versions]     the same, in a sub-folder (keepass/<folder>/<name>.kdbx)
@@ -53,7 +54,7 @@ BUCKET = os.environ.get("BUCKET", "")
 PREFIX = "keepass/"                 # fixed layout: s3://<bucket>/keepass/[<folder>/]<name>.kdbx
 MAIN = ""                           # the top level, keepass/ itself; a folder is one level down
 LOG = "log/"                        # access records: s3://<bucket>/log/<vault key>/<time>-<random>.json
-MAX_BYTES = 5 * 1024 * 1024         # a Function URL takes at most 6 MB per request, base64 included
+MAX_BYTES = 4_718_592               # 4.5 MB: a Function URL takes at most 6 MB per request, base64 included
 
 HERE = os.path.dirname(__file__)
 with open(os.path.join(HERE, "index.html"), encoding="utf-8") as f:
@@ -94,7 +95,11 @@ class NotFound(Exception):
 
 
 class Conflict(Exception):
-    """The vault changed since the caller read it (another tab or device saved first)."""
+    """A precondition failed: the name exists (create), or the version to delete is not the current one."""
+
+
+class Stale(Exception):
+    """A save lost the race: the vault changed since the caller read it (another tab or device saved first)."""
 
 
 class PreconditionRequired(Exception):
@@ -145,7 +150,7 @@ def _identity(event):
     return (USER or "anonymous") if _authed(event) else None
 
 
-ERRORS = [(BadRequest, 400), (Forbidden, 403), (NotFound, 404), (Conflict, 412), (TooLarge, 413),
+ERRORS = [(BadRequest, 400), (Forbidden, 403), (NotFound, 404), (Stale, 409), (Conflict, 412), (TooLarge, 413),
           (PreconditionRequired, 428)]   # exception class -> HTTP status
 
 
@@ -219,7 +224,8 @@ def _bytes(event):
     if not data:
         raise BadRequest("empty body: send the .kdbx file")
     if len(data) > MAX_BYTES:
-        raise TooLarge(f"a vault is at most {MAX_BYTES // 1024 // 1024} MB (a Lambda Function URL request limit)")
+        raise TooLarge(f"a vault is at most 4.5 MB ({len(data) / 1048576:.1f} MB sent): a Lambda Function URL request "
+                       "is 6 MB, base64 included — remove attachments and history (Clean up) and save again")
     if data[:4] != b"\x03\xd9\xa2\x9a":
         raise BadRequest("not a KeePass file (.kdbx signature missing)")
     return data
@@ -364,13 +370,15 @@ def put_vault(event, folder, name):
                           ServerSideEncryption="aws:kms", Metadata={"owner": urllib.parse.quote(owner)}, **cond)
     except ClientError as e:
         if _code(e) in ("PreconditionFailed", "ConditionalRequestConflict", "412", "409"):
-            raise Conflict(f"vault {name!r} already exists" if not if_match else
-                           f"vault {name!r} was changed elsewhere (another tab or device) since you opened it; "
-                           "nothing was overwritten — reopen it to see the other change") from None
+            if not if_match:
+                raise Conflict(f"vault {name!r} already exists; nothing was overwritten") from None
+            raise Stale(f"vault {name!r} was changed elsewhere (another tab or device) since you opened it; "
+                        "nothing was overwritten — reopen it to see the other change") from None
         if _code(e) in ("NoSuchKey", "404"):
             raise NotFound(f"no vault {name!r}") from None
         raise
-    _record(event, key, "save" if if_match else "create", etag=r["ETag"])
+    upload = ((event.get("queryStringParameters") or {}).get("action") == "upload")
+    _record(event, key, "save" if if_match else "upload" if upload else "create", etag=r["ETag"])
     return (200 if if_match else 201), {
         "name": name, "etag": r["ETag"], "version_id": r.get("VersionId") or "", "size": len(data),
         "backend": f"S3 put {key} · {len(data)} bytes · {'If-Match' if if_match else 'If-None-Match *'}"}

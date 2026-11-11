@@ -136,7 +136,7 @@ def test_stale_save_is_refused_never_overwritten(fake_s3):
     tab1 = call("PUT", vault("库1"), KDBX + b"tab 1", headers={"if-match": etag})
     tab2 = call("PUT", vault("库1"), KDBX + b"tab 2", headers={"if-match": etag})
     assert tab1[0] == 200
-    assert tab2[0] == 412 and "changed elsewhere" in tab2[1]["error"] and "nothing was overwritten" in tab2[1]["error"]
+    assert tab2[0] == 409 and "changed elsewhere" in tab2[1]["error"] and "nothing was overwritten" in tab2[1]["error"]   # task 5: 409
     assert call("GET", vault("库1"))[1] == KDBX + b"tab 1"
 
 
@@ -346,3 +346,21 @@ def test_a_failing_log_never_blocks_the_vault(fake_s3, monkeypatch):
     monkeypatch.setattr(fake_s3, "put_object", put)
     assert create("库1")                                          # the save itself succeeds
     assert call("GET", vault("库1"))[0] == 200
+
+
+# ---- task 5: stale save = 409, upload into a folder never overwrites, at most 4.5 MB ----
+
+def test_upload_into_a_folder_never_overwrites(fake_s3):
+    up = lambda body: call("PUT", file("team", "imported"), body, headers={"if-none-match": "*"}, query={"action": "upload"})
+    assert up(KDBX)[0] == 201
+    status, out, _ = up(KDBX + b"other")
+    assert status == 412 and "already exists" in out["error"]
+    assert call("GET", file("team", "imported"))[1] == KDBX
+    assert records("keepass/team/imported.kdbx")[-1]["action"] == "upload"
+
+
+def test_size_limit_is_4_5_mb(fake_s3):
+    assert lf.MAX_BYTES == 4_718_592                                # 4.5 MiB: a Function URL request is 6 MB, base64 included
+    assert call("PUT", vault("at-limit"), KDBX + b"x" * (lf.MAX_BYTES - len(KDBX)), headers={"if-none-match": "*"})[0] == 201
+    status, out, _ = call("PUT", vault("over"), KDBX + b"x" * (lf.MAX_BYTES - len(KDBX) + 1), headers={"if-none-match": "*"})
+    assert status == 413 and "4.5 MB" in out["error"]

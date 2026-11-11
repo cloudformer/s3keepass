@@ -648,7 +648,7 @@ function crumbs(...parts) {
 }
 
 // ---------------- vault files: folders | files | file — the same layout as an open vault ----------------
-let F = {folder: '', file: null, folders: []};   // the file page: selected folder and file
+let F = {folder: '', file: null, ticked: new Set(), folders: []};   // the file page: selected folder, file, ticked file names
 
 async function showHome() {
   $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true; $('#lock').hidden = true;
@@ -669,15 +669,18 @@ function renderHome() {
   toolbar([{icon: '↻', label: 'Refresh', do: showHome}]);   // actions on files sit on the file list's head
   // left: S3 folders
   const node = (f, depth) => h('div', {class: 'node' + (f.name === F.folder ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
-      onclick: () => { F.folder = f.name; F.file = null; vaults = f.files; renderHome(); }},
+      onclick: () => { F.folder = f.name; F.file = null; F.ticked.clear(); vaults = f.files; renderHome(); }},
     h('span', {class: 'caret'}, depth === 0 && F.folders.length > 1 ? '▾' : ''), h('span', {}, depth ? '📁' : '🗃'),
     h('span', {class: 'name', text: f.name || 'Vaults'}), h('span', {class: 'count'}, f.files.length || ''));
   $('#ftree').replaceChildren(h('div', {class: 'pane-title'}, 'Folders'),
     node(F.folders[0], 0), ...F.folders.slice(1).map(f => node(f, 1)));
   // middle: the vault files in the folder
   const unlockMark = u => !u ? '' : `${u.ok ? '✓' : '✗'} ${when(u.at)}`;
+  for (const n of [...F.ticked]) if (!files.some(x => x.name === n)) F.ticked.delete(n);
   const rows = files.map(x => h('tr', {class: 'row' + (v && x.name === v.name ? ' sel' : ''),
       onclick: () => { F.file = x; renderHome(); }, ondblclick: () => unlock(x)},
+    h('td', {class: 'tick'}, h('input', {type: 'checkbox', checked: F.ticked.has(x.name), onclick: ev => ev.stopPropagation(),
+      onchange: ev => { ev.target.checked ? F.ticked.add(x.name) : F.ticked.delete(x.name); renderHome(); }})),
     h('td', {class: 't'}, safe(false), ' ', `${x.name}.kdbx`), h('td', {class: 'muted'}, x.owner || '—'),
     h('td', {class: 'muted'}, size(x.size)), h('td', {class: 'muted'}, when(x.modified)),
     h('td', {class: 'muted'}, unlockMark(x.last_unlock))));
@@ -691,10 +694,15 @@ function renderHome() {
         {icon: '📁', label: 'New folder', title: 'A folder for sorting vaults; it stays once a vault is saved in it', primary: true, do: newFolder},
         {icon: '🔓', label: 'Open', title: 'Unlock the vault (double-click)', disabled: !v, do: () => unlock(v)},
         {icon: '🕘', label: 'Versions', disabled: !v, do: () => versionsDialog(v)},
+        {icon: '⇢', label: 'Move to…', title: 'Move the ticked vault files (or the selected one) to another folder',
+         disabled: !movableFiles().length, do: moveFilesDialog},
         {icon: '🗑', label: 'Delete', disabled: !v, do: () => deleteVault(v)},
       ])),
     h('div', {class: 'list-body'}, files.length ? h('table', {},
-      h('tr', {}, h('th', {}, 'File'), h('th', {}, 'Owner'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {}, 'Last unlock')), rows)
+      h('tr', {}, h('th', {class: 'tick'}, h('input', {type: 'checkbox', title: 'Tick all',
+          checked: files.length > 0 && files.every(x => F.ticked.has(x.name)),
+          onchange: ev => { for (const x of files) ev.target.checked ? F.ticked.add(x.name) : F.ticked.delete(x.name); renderHome(); }})),
+        h('th', {}, 'File'), h('th', {}, 'Owner'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {}, 'Last unlock')), rows)
       : h('div', {class: 'empty'}, 'No vault files in this folder yet.')));
   // right: the selected file
   const el = $('#fdetail');
@@ -727,6 +735,33 @@ async function newFolder() {
   F.folders.push({name, path: `keepass/${name}/`, files: []});
   F.folder = name; F.file = null; vaults = [];
   renderHome();
+}
+
+// ---- move vault files: the ticked ones, else the selected one, to another folder ----
+function movableFiles() {
+  const files = F.folders.find(f => f.name === F.folder).files;
+  return F.ticked.size ? files.filter(x => F.ticked.has(x.name)) : F.file ? [F.file] : [];
+}
+async function moveFilesDialog() {
+  const files = movableFiles(), targets = F.folders.filter(f => f.name !== F.folder);
+  if (!targets.length) return toast('No other folder yet — 📁 New folder first', true);
+  const pick = h('select', {style: 'width:100%;padding:6px'}, targets.map(f => h('option', {value: f.name}, f.name ? `📁 ${f.name}` : '🗃 Vaults')));
+  const what = files.length === 1 ? `${files[0].name}.kdbx` : `${files.length} vault files`;
+  const failed = [];
+  const r = await ask(`Move ${what}`, [{el: h('div', {class: 'f'}, h('label', {}, 'To folder'), pick)}],
+    {ok: 'Move', busy: 'Moving …', note: 'S3 has no rename: each file is copied, then the original deleted. Older versions stay with the original name.',
+     validate: async () => {
+       for (const x of files) {
+         try { await call('POST', '/api/move', {body: JSON.stringify({path: x.path, etag: x.etag, folder: pick.value}),
+                                                headers: {'content-type': 'application/json'}}); }
+         catch (e) { failed.push(`${x.name}: ${e.message}`); }
+       }
+       if (failed.length === files.length) return failed.join(' · ');
+     }});
+  if (!r) return;
+  F.ticked.clear(); F.file = null;
+  if (failed.length) toast(`Not moved: ${failed.join(' · ')}`, true); else toast(`Moved ${what} to ${pick.value || 'Vaults'}`);
+  F.folder = pick.value; await showHome();
 }
 
 async function showRecords(v, box) {

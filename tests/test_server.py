@@ -384,3 +384,35 @@ def test_a_missing_or_broken_template_says_what_to_do(fake_s3):
     fake_s3.put_object(Bucket="b", Key="config/template.json", Body=b"{not json")
     status, out, _ = call("GET", "/api/template")
     assert status == 500 and "terraform/template.json" in out["error"]
+
+
+# ---- move a vault file to another folder (S3 has no rename: write the copy, then delete the original) ----
+
+def move(path, etag, folder, auth=AUTH):
+    return call("POST", "/api/move", json.dumps({"path": path, "etag": etag, "folder": folder}).encode(), auth=auth)
+
+
+def test_move_a_vault_to_another_folder(fake_s3, monkeypatch):
+    a = as_user(monkeypatch, "alice")
+    etag = call("PUT", vault("库1"), KDBX, auth=a, headers={"if-none-match": "*"})[1]["etag"]
+    status, out, _ = move("keepass/库1.kdbx", etag, "team", auth=a)
+    assert status == 200 and out["path"] == "keepass/team/库1.kdbx"
+    assert call("GET", vault("库1"), auth=a)[0] == 404                                   # gone from the top level
+    assert call("GET", file("team", "库1"), auth=a)[1] == KDBX                           # same bytes in team/
+    assert fake_s3._current("keepass/team/库1.kdbx")["meta"]["owner"] == "alice"         # the owner moves along
+    recs = call("GET", "/api/audit", auth=a, query={"path": "keepass/team/库1.kdbx"})[1]["records"]
+    assert [r["from"] for r in recs if r["action"] == "move"] == ["keepass/库1.kdbx"]   # newest is the read just above
+    status, out, _ = move("keepass/team/库1.kdbx", out["etag"], "", auth=a)              # and back to the top level
+    assert status == 200 and out["path"] == "keepass/库1.kdbx"
+
+
+def test_move_never_overwrites_and_never_loses(fake_s3):
+    e1 = create("库1")
+    call("PUT", file("team", "库1"), KDBX + b"other", headers={"if-none-match": "*"})
+    status, out, _ = move("keepass/库1.kdbx", e1, "team")
+    assert status == 412 and "already" in out["error"]
+    assert call("GET", vault("库1"))[1] == KDBX and call("GET", file("team", "库1"))[1] == KDBX + b"other"
+    assert move("keepass/库1.kdbx", '"stale"', "x")[0] == 412                             # changed since it was listed
+    assert move("keepass/库1.kdbx", e1, "")[0] == 400                                    # already there
+    assert move("keepass/库1.kdbx", e1, "../x")[0] == 400
+    assert move("keepass/nope.kdbx", e1, "x")[0] == 404

@@ -22,6 +22,9 @@ Sign-in, AUTH_METHOD:
     DELETE /api/vaults/<name>                 If-Match <etag> required; the bucket keeps old versions
     GET    /api/vaults/<name>/versions        the file's S3 versions, newest first
     /api/files/<folder>/<name>[/versions]     the same, in a sub-folder (keepass/<folder>/<name>.kdbx)
+    POST   /api/move                          {"path", "etag", "folder"}: move a vault file to another folder ("" = the
+                                              top level). S3 has no rename: the copy is written (never over an existing
+                                              file), then the original is deleted; its older versions stay where it was
     POST   /api/audit/unlock                  {"path", "ok"}: the browser reports an unlock result (self-reported:
                                               a file downloaded around the page never shows up here)
     GET    /api/audit?path=<key>&limit=<n>    a vault's access records, newest first
@@ -406,6 +409,37 @@ def put_vault(event, folder, name):
         "backend": f"S3 put {key} · {len(data)} bytes · {'If-Match' if if_match else 'If-None-Match *'}"}
 
 
+def move_vault(event):
+    data = _body(event)
+    key, etag, folder = _vault_key(data.get("path")), data.get("etag"), data.get("folder", "")
+    if not isinstance(etag, str) or not etag or not isinstance(folder, str):
+        raise BadRequest('send {"path": "<vault key>", "etag": "<etag you listed>", "folder": "<folder>" | ""}')
+    _, name = _split(key)
+    dest = _key(folder, name)
+    if dest == key:
+        raise BadRequest(f"{key} is already in that folder")
+    try:
+        src = s3.get_object(Bucket=BUCKET, Key=key)
+    except ClientError as e:
+        if _code(e) in ("NoSuchKey", "404"):
+            raise NotFound(f"no vault {key}") from None
+        raise
+    if src["ETag"] != etag:
+        raise Conflict(f"{key} was changed since you listed it; nothing was moved")
+    body = src["Body"].read()
+    try:   # the copy first, never over an existing file: if this fails, the original is untouched
+        r = s3.put_object(Bucket=BUCKET, Key=dest, Body=body, ContentType="application/octet-stream",
+                          ServerSideEncryption="aws:kms", Metadata=src.get("Metadata") or {}, IfNoneMatch="*")
+    except ClientError as e:
+        if _code(e) in ("PreconditionFailed", "ConditionalRequestConflict", "412", "409"):
+            raise Conflict(f"a vault named {name!r} is already in that folder; nothing was moved") from None
+        raise
+    s3.delete_object(Bucket=BUCKET, Key=key)
+    _record(event, key, "move", to=dest)
+    _record(event, dest, "move", etag=r["ETag"], **{"from": key})
+    return {"path": dest, "etag": r["ETag"], "backend": f"S3 put {dest} (If-None-Match *) · delete {key}"}
+
+
 def delete_vault(event, folder, name):
     key = _key(folder, name)
     if_match = _header(event, "if-match")
@@ -453,6 +487,7 @@ ROUTES = [
     ("GET",    re.compile(r"/api/me"), me),
     ("GET",    re.compile(r"/api/tree"), tree),
     ("POST",   re.compile(r"/api/audit/unlock"), report_unlock),
+    ("POST",   re.compile(r"/api/move"), move_vault),
     ("GET",    re.compile(r"/api/audit"), audit),
     ("GET",    re.compile(r"/api/template"), template),
     ("GET",    re.compile(FILE + "/versions"), list_versions),

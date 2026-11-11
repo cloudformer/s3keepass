@@ -44,6 +44,10 @@
 - Both screens keep their actions on the list head (files: New vault, Upload, New folder, Open, Versions, Delete;
   entries: New entry, New group, Edit, Move to…, Delete); the top bar has only what concerns the whole page.
 
+- Move vault files between folders, like entries between groups: tick them (or select one), Move to…, pick
+  the folder. `POST /api/move`: S3 has no rename, so the copy is written first (never over an existing file),
+  then the original deleted; the owner moves along, older versions stay under the old name.
+
 ## 0.1.0 — 2026-10-29
 
 First release: the web UI replaces a local KeePass client.

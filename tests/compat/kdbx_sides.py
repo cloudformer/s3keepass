@@ -92,6 +92,13 @@ class KeePassXC:
     def attachment_export(self, f, password, entry, name):
         return self.cli("attachment-export", "-q", "--stdout", f, entry, name, stdin=password + "\n")
 
+    def meta(self, f, password):
+        """KeePassXC's reading of the vault's settings: entry history kept, recycle bin on / off."""
+        xml = self.cli("export", "-q", "-f", "xml", f, stdin=password + "\n")
+        doc = ET.fromstring(xml[xml.index("<"):])
+        return {"history_max_items": int(doc.findtext("Meta/HistoryMaxItems")),
+                "recycle_bin": doc.findtext("Meta/RecycleBinEnabled") == "True"}
+
     def tree(self, f, password, key=None):
         """The whole vault from KeePassXC's XML export, in the shape kdbx_node.js dumps."""
         xml = self.cli("export", "-q", "-f", "xml", *(["-k", key] if key else []), f, stdin=password + "\n")
@@ -146,8 +153,9 @@ class Ours:
             json.dump(data, fh, ensure_ascii=False)
         return self.box.box(name)
 
-    def create(self, f, password, tree, key=None):
-        self.node("create", f, password, self._json(tree), *(["--key", key] if key else []))
+    def create(self, f, password, tree, key=None, template=None):
+        self.node("create", f, password, self._json(tree), *(["--key", key] if key else []),
+                  *(["--template", self._json(template)] if template else []))
 
     def tree(self, f, password, key=None):
         return norm(self.node("dump", f, password, *(["--key", key] if key else [])))

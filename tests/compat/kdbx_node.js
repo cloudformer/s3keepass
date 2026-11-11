@@ -9,6 +9,7 @@
 //   node kdbx_node.js info   <in.kdbx>  <password>                 KDBX version, cipher, KDF
 //   node kdbx_node.js keyfile <out.keyx>                           a new key file, as the UI's "New" button makes it
 //   --key <file> (any command that opens or creates a vault): the key file next to the password
+//   --template <file.json> (create): the new-vault template, as the UI gets it from /api/template
 //
 // tree.json: {"groups": [{"name", "groups": [...], "entries": [...]}], "entries": [{title, username, password,
 // url, notes, tags, custom: [{name, value, protected}]}]}. ops.json: [["addGroup", "A/B"], ["renameGroup",
@@ -81,13 +82,15 @@ function dump(db) {
 async function main() {
   const argv = process.argv.slice(2), k = argv.indexOf('--key');
   const key = k < 0 ? null : read(argv.splice(k, 2)[1]);
+  const t = argv.indexOf('--template');
+  const template = t < 0 ? undefined : JSON.parse(fs.readFileSync(argv.splice(t, 2)[1], 'utf8'));
   const [cmd, file, password, arg, out] = argv;
   if (cmd === 'keyfile') {
     fs.writeFileSync(file, Buffer.from(await Vault.newKeyFile()));
     return {ok: true};
   }
   if (cmd === 'create') {
-    const db = await Vault.create(path.basename(file, '.kdbx'), password, key);
+    const db = await Vault.create(path.basename(file, '.kdbx'), password, key, template);
     fill(db, db.getDefaultGroup(), JSON.parse(fs.readFileSync(arg, 'utf8')));
     await write(db, file);
     return {ok: true};

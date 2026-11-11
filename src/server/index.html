@@ -46,9 +46,8 @@ a { color: var(--accent); }
   cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .tb:hover:not(:disabled) { background: rgba(255,255,255,.1); }
 .tb:disabled { opacity: .35; cursor: default; }
-#lock { background: #f59e0b; color: #111827; border-color: #f59e0b; font-weight: 600; padding: 5px 12px; }
-#lock:hover { background: #fbbf24; }
-#lock .lbl { display: inline !important; }
+.btn.lock { background: #f59e0b; color: #111827; border-color: #f59e0b; font-weight: 600; }
+.btn.lock:hover { background: #fbbf24; }
 .sep { width: 1px; height: 20px; background: rgba(255,255,255,.15); margin: 0 4px; }
 .spacer { flex: 1; }
 .search { background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.15); border-radius: 6px;
@@ -208,7 +207,6 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
   <div class="tools" id="tools"></div>
   <div class="spacer"></div>
   <input class="search" id="search" type="search" placeholder="Search entries (⌘F)" autocomplete="off" hidden>
-  <button class="tb" id="lock" title="Lock (⌘L): forget the decrypted vault in this tab; also after 5 minutes idle" hidden>🔒 <span class="lbl" id="lock-lbl">Lock</span></button>
   <span class="chip" id="host" title="Endpoint"></span>
   <button class="tb" id="signout" title="Forget this deployment's sign-in (HTTP Basic) on this browser">Sign out</button>
 </header>
@@ -259,12 +257,13 @@ const Vault = (() => {
 
   // against brute force: every guess at the master key costs one Argon2id run of KDF_MIB memory, and the number of
   // passes is tuned on this device so that opening the vault takes at least UNLOCK_MS (the file lives on S3).
-  const KDF_MIB = 128, KDF_PARALLELISM = 2, KDF_MIN_ITERATIONS = 4, UNLOCK_MS = 1500;
-  async function kdfIterations(targetMs = UNLOCK_MS) {
+  // the defaults; a template (terraform/template.json, via /api/template) may set its own
+  const KDF = {memory_mib: 128, parallelism: 2, unlock_ms: 1500}, KDF_MIN_ITERATIONS = 4;
+  async function kdfIterations({memory_mib, parallelism, unlock_ms: targetMs} = KDF) {
     const run = async time => {
       const t0 = Date.now();
-      await argon2.hash({pass: new Uint8Array(16), salt: new Uint8Array(32), time, mem: KDF_MIB * 1024, hashLen: 32,
-        parallelism: KDF_PARALLELISM, type: argon2.ArgonType.Argon2id});
+      await argon2.hash({pass: new Uint8Array(16), salt: new Uint8Array(32), time, mem: memory_mib * 1024, hashLen: 32,
+        parallelism, type: argon2.ArgonType.Argon2id});
       return Date.now() - t0;
     };
     await run(1);                                          // warm-up: loads the WASM, allocates the memory
@@ -272,16 +271,37 @@ const Vault = (() => {
     const pass = Math.max((t3 - t1) / 2, 1), fixed = Math.max(t1 - pass, 0);
     return Math.max(KDF_MIN_ITERATIONS, Math.ceil((targetMs * 1.15 - fixed) / pass));   // +15%: stay above the target
   }
-  // a new vault: KDBX 4, AES-256, Argon2id 128 MiB, passes tuned to >= 1.5 s here (KeePassXC tunes the same way)
-  async function create(name, password, keyFile) {
-    const db = K.Kdbx.create(await creds(password, keyFile), name);
+  // a new vault: KDBX 4, AES-256, Argon2id with the template's memory, passes tuned to its unlock time here (KeePassXC
+  // tunes the same way); then the template's groups, extra fields, entry history and recycle bin
+  async function create(name, password, keyFile, template) {
+    const db = K.Kdbx.create(await creds(password, keyFile), name), kdf = Object.assign({}, KDF, template && template.kdf);
     db.setKdf(K.Consts.KdfId.Argon2id);
     const p = db.header.kdfParameters, T = K.VarDictionary.ValueType;
-    p.set('M', T.UInt64, K.Int64.from(KDF_MIB * 1024 * 1024));
-    p.set('I', T.UInt64, K.Int64.from(await kdfIterations()));
-    p.set('P', T.UInt32, KDF_PARALLELISM);
+    p.set('M', T.UInt64, K.Int64.from(kdf.memory_mib * 1024 * 1024));
+    p.set('I', T.UInt64, K.Int64.from(await kdfIterations(kdf)));
+    p.set('P', T.UInt32, kdf.parallelism);
+    if (template) applyTemplate(db, template);
     return db;
   }
+  const FIELDS_KEY = 's3keepass.fields';   // the template's extra fields, kept in the vault's own custom data
+  function applyTemplate(db, t) {
+    if (t.cipher === 'aes256') db.header.dataCipherUuid = new K.KdbxUuid(K.Consts.CipherId.Aes);
+    if (Number.isInteger(t.history_max_items)) db.meta.historyMaxItems = t.history_max_items;
+    if (t.recycle_bin === false) {                     // off: a delete is final, and the empty bin group goes
+      const bin = recycleBin(db);
+      db.meta.recycleBinEnabled = false;
+      if (bin) db.move(bin, null);
+    }
+    const root = db.getDefaultGroup();
+    for (const name of t.groups || []) if (!root.groups.some(g => g.name === name)) db.createGroup(root, name);
+    if ((t.fields || []).length) db.meta.customData.set(FIELDS_KEY, {value: JSON.stringify(t.fields)});
+  }
+  // the extra fields a new entry starts with (empty), as the vault's template set them
+  function templateFields(db) {
+    try { return JSON.parse((db.meta.customData.get(FIELDS_KEY) || {}).value || '[]'); } catch (e) { return []; }
+  }
+  // a delete is final when the item is already in the bin, or the vault has no recycle bin
+  const deleteIsFinal = (db, item) => !db.meta.recycleBinEnabled || inRecycleBin(db, item);
   const open = async (bytes, password, keyFile) => K.Kdbx.load(bytes, await creds(password, keyFile));
   function save(db) { db.cleanup({historyRules: true}); return db.save(); }
   async function setMasterKey(db, password, keyFile) {
@@ -326,10 +346,10 @@ const Vault = (() => {
     return false;
   }
   // delete = move to the recycle bin, as KeePassXC does; from inside the bin it is permanent
-  function remove(db, item) { if (inRecycleBin(db, item)) db.move(item, null); else db.remove(item); }
+  function remove(db, item) { if (deleteIsFinal(db, item)) db.move(item, null); else db.remove(item); }
   function moveEntries(db, entries, group) { for (const e of entries) if (e.parentGroup !== group) db.move(e, group); }
   return {create, open, save, setMasterKey, isMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin,
-          inRecycleBin, remove, moveEntries};
+          inRecycleBin, remove, moveEntries, templateFields, deleteIsFinal};
 })();
 </script>
 <script>
@@ -635,7 +655,7 @@ let saving = null, saveAgain = false;
 
 // the same buttons as the top bar, placed where they act (the entries list's head)
 function actionRow(items) {
-  return h('div', {class: 'list-actions'}, ...items.map(it => h('button', {class: 'btn sm' + (it.primary ? ' primary' : ''),
+  return h('div', {class: 'list-actions'}, ...items.map(it => h('button', {class: 'btn sm' + (it.primary ? ' primary' : '') + (it.cls ? ' ' + it.cls : ''),
     title: it.title || it.label, disabled: !!it.disabled, onclick: it.do}, it.icon, ' ', it.label)));
 }
 function toolbar(items) {
@@ -651,7 +671,7 @@ function crumbs(...parts) {
 let F = {folder: '', file: null, ticked: new Set(), folders: []};   // the file page: selected folder, file, ticked file names
 
 async function showHome() {
-  $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true; $('#lock').hidden = true;
+  $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true;
   $('#signout').hidden = false;
   renderSaveState();
   try { F.folders = (await call('GET', '/api/tree')).folders; }
@@ -779,19 +799,20 @@ function checkName(name) {
 }
 
 async function newVault() {
-  let made = null;
+  let made = null, template;
+  try { template = (await call('GET', '/api/template')).template; } catch (e) { return toast(`No template: ${e.message}`, true); }
   const r = await ask('New vault', [
     {name: 'name', label: 'Name', required: true, hint: `In ${F.folder ? '📁 ' + F.folder : 'Vaults'}`},
     {name: 'pw', label: 'Master password', type: 'password', required: true, generate: true, meter: true, autocomplete: 'new-password'},
     {name: 'pw2', label: 'Repeat master password', type: 'password', required: true, autocomplete: 'new-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: KEYFILE_HINT, generate: () => $('dialog[open] input').value.trim()}],
-    {ok: 'Create', busy: 'Tuning Argon2id to ≥ 1.5 s on this device, then encrypting …', done: 'Created', note: 'The master password never leaves this browser. ' +
+    {ok: 'Create', busy: `Tuning Argon2id to ≥ ${(template.kdf && template.kdf.unlock_ms || 1500) / 1000} s on this device, then encrypting …`, done: 'Created', note: 'The master password never leaves this browser. ' +
        'There is no recovery: if you forget it, the vault cannot be opened.',
      validate: async v => {
        const name = v.name.trim();
        const bad = checkName(name) || (v.pw !== v.pw2 ? 'The passwords do not match' : null);
        if (bad) return bad;
-       const db = await Vault.create(name, v.pw, v.key);
+       const db = await Vault.create(name, v.pw, v.key, template);
        const res = await putVault(name, await Vault.save(db), {'if-none-match': '*'}, '', F.folder);
        made = {name, folder: F.folder, db, etag: res.etag};
      }});
@@ -878,9 +899,8 @@ async function unlock(v) {
 function openDb({name, folder = '', db, etag}) {
   S = {name, folder, db, etag, group: db.getDefaultGroup(), entry: null, ticked: new Set(), search: '', open: new Set(), conflict: null, saved: null, error: null};
   S.open.add(S.group.uuid.id);
-  $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false; $('#lock').hidden = false;
+  $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false;
   $('#signout').hidden = true;   // inside a vault the way out is Lock; Sign out is on the vault-file list only
-  $('#lock-lbl').textContent = `Lock ${name}`;
   $('#search').value = '';
   lastActive = Date.now();
   renderVault();
@@ -899,7 +919,6 @@ async function lock() {
   if (clipToken) { clipToken++; clearClipboard(); }
   showHome();
 }
-$('#lock').addEventListener('click', lock);
 $('#brand').addEventListener('click', () => S ? lock() : showHome());
 
 let lastActive = Date.now();
@@ -1000,7 +1019,8 @@ function renderTree(ro) {
   const s3node = (icon, label, depth, sel, title) => h('div', {class: 'node' + (sel ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
       title, onclick: sel ? null : back},
     h('span', {class: 'caret'}, sel ? '' : '▾'), h('span', {}, icon), h('span', {class: 'name', text: label}),
-    sel ? h('span', {class: 'count', text: '🔓'}) : null);
+    sel ? h('button', {class: 'btn sm', title: 'Close: lock this vault and go back to the vault files (same as Lock)',
+      onclick: ev => { ev.stopPropagation(); lock(); }}, 'Close') : null);
   const s3 = [h('div', {class: 'pane-title'}, 'Folders'),
     s3node('🗃', 'Vaults', 0, false, 'All vault files (locks this vault)'),
     S.folder ? s3node('📁', S.folder, 1, false, 'All vault files (locks this vault)') : null,
@@ -1027,6 +1047,7 @@ function renderList(ro) {
       {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
       {icon: '⇢', label: 'Move to…', title: 'Move the ticked entries (or the selected one) to another group', disabled: ro || !movable().length, do: moveDialog},
       {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)},
+      {icon: '🔒', label: `Lock ${S.name}`, cls: 'lock', title: 'Lock (⌘L): forget the decrypted vault in this tab; also after 5 minutes idle', do: lock},
     ]));
   const banner = S.conflict ? h('div', {class: 'banner'},
     h('span', {}, h('b', {}, 'Not saved. '), 'This vault was changed elsewhere (another tab or device) after you opened it. ' +
@@ -1071,7 +1092,7 @@ function renderDetail(ro) {
     link && /^https?:\/\//i.test(value) ? h('a', {class: 'val', href: value, target: '_blank', rel: 'noopener noreferrer', text: value})
                                         : h('span', {class: 'val', text: value}),
     h('button', {class: 'icon-btn', title: 'Copy', onclick: () => copy(value, label)}, '⧉')));
-  const t = e.times, forever = Vault.inRecycleBin(S.db, e);
+  const t = e.times, forever = Vault.deleteIsFinal(S.db, e);
   el.replaceChildren(...[
     h('div', {class: 'd-title', text: f.title || '(no title)'}),
     h('div', {class: 'd-path', text: groupPath(e.parentGroup).join(' / ')}),
@@ -1094,7 +1115,8 @@ function renderDetail(ro) {
 
 // ---------------- editing: every change is saved at once ----------------
 async function entryDialog(entry) {
-  const f = entry ? Vault.fields(entry) : {title: '', username: '', password: generate(genOpts()), url: '', notes: '', tags: [], custom: []};
+  const f = entry ? Vault.fields(entry) : {title: '', username: '', password: generate(genOpts()), url: '', notes: '', tags: [],
+    custom: Vault.templateFields(S.db).map(name => ({name, value: '', protected: false}))};
   const customBox = h('div', {}), rows = [];
   const addRow = c => {
     const name = h('input', {type: 'text', value: c.name, placeholder: 'name'});
@@ -1154,7 +1176,7 @@ async function moveDialog() {
 }
 
 async function deleteEntry(e) {
-  const f = Vault.fields(e), forever = Vault.inRecycleBin(S.db, e);
+  const f = Vault.fields(e), forever = Vault.deleteIsFinal(S.db, e);
   if (forever && !(await confirmDlg(`Delete "${f.title}" forever?`, 'It is removed from the vault (earlier S3 versions of the file still have it).'))) return;
   Vault.remove(S.db, e);
   S.entry = null;
@@ -1172,7 +1194,7 @@ async function groupDialog(group) {
 }
 
 async function deleteGroup(g) {
-  const forever = Vault.inRecycleBin(S.db, g), n = entryCount(g);
+  const forever = Vault.deleteIsFinal(S.db, g), n = entryCount(g);
   if (!(await confirmDlg(`Delete group "${g.name}"?`, forever ? `It and its ${n} entries are removed from the vault.` :
     `It moves to the recycle bin with its ${n} entries.`))) return;
   Vault.remove(S.db, g);

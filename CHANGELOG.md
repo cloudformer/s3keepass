@@ -48,6 +48,10 @@
   the folder. `POST /api/move`: S3 has no rename, so the copy is written first (never over an existing file),
   then the original deleted; the owner moves along, older versions stay under the old name.
 
+- New vaults follow the template (task 8): its Argon2id memory, parallelism and minimum unlock time; its groups;
+  its extra fields (every new entry starts with them, empty); its entry history (0 = none kept); recycle bin off =
+  a delete is final, and the UI says so. KeePassXC reads such a vault the same way (compatibility test).
+
 ## 0.1.0 — 2026-10-29
 
 First release: the web UI replaces a local KeePass client.

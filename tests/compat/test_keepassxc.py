@@ -8,6 +8,8 @@ is read by both sides (keepassxc-cli export / the web UI's vault code in Node) a
     python3 -m pytest tests -q --docker run    # ... stop if all passed
     python3 -m pytest tests -q --docker down   # ... always stop
 """
+import json
+import os
 import time
 import pytest
 
@@ -161,6 +163,23 @@ def test_new_vault_format(kx, ours, box):
     assert time.monotonic() - t0 >= 1.5, "opening a new vault must take at least 1.5 s"
     info = kx.info(f, PW)
     assert "Argon2id" in info and "AES" in info, info
+
+
+def test_new_vault_from_the_template(kx, ours, box):
+    """Metadata | a new vault follows the template (terraform/template.json) | groups, no entry history, no recycle bin, its KDF memory; KeePassXC reads it so"""
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "terraform", "template.json"), encoding="utf-8") as fh:
+        template = dict(json.load(fh), groups=["Email", "Finance"], fields=["PIN"])
+    f, out = box.box("库1.kdbx"), box.box("out.kdbx")
+    ours.create(f, PW, {}, template=template)
+    assert kx.meta(f, PW) == {"history_max_items": 0, "recycle_bin": False}
+    theirs = kx.tree(f, PW)
+    assert [g["name"] for g in theirs["groups"]] == ["Email", "Finance"] and theirs["recycleBin"] is None
+    assert ours.info(f, PW)["memory"] == template["kdf"]["memory_mib"] * 1024 * 1024
+    ours.edit(f, PW, [["addEntry", "Email", {"title": "m", "username": "u", "password": "p", "url": "", "notes": "",
+                                             "tags": [], "custom": []}],
+                      ["editEntry", "Email/m", {"password": "p2"}], ["removeEntry", "Email/m"]], out)
+    after = kx.tree(out, PW)                                   # no history kept, and a delete is final (no bin)
+    assert after["recycleBin"] is None and all(not g["entries"] for g in after["groups"])
 
 
 def test_key_file_vault_from_keepassxc_opens_in_s3keepass(kx, ours, box):

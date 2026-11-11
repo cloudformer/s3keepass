@@ -10,6 +10,8 @@
   files; `/api/files/<folder>/<name>` opens / saves / deletes a vault in a sub-folder, `/api/vaults/<name>` in the
   main folder as before. Paths are built in one place and refuse `..`, hidden names, deeper nesting and anything
   outside `keepass/`.
+- Owner: who created a vault (the web user; with Cloudflare, the email) is kept in the file's S3 metadata
+  (`x-amz-meta-owner`); later saves by anyone keep it. `/api/tree` shows it.
 
 ## 0.1.0 — 2026-10-29
 

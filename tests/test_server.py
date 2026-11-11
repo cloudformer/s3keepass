@@ -258,3 +258,32 @@ def test_tree_lists_folders_and_files(fake_s3):
     assert mine["modified"] and mine["etag"]
     assert out["folders"][1]["files"] == []
     assert [f["name"] for f in out["folders"][2]["files"]] == ["b"]
+
+
+# ---- task 3: owner = who created the vault (web: the user; cloudflare: the email) ----
+
+def as_user(monkeypatch, user):
+    monkeypatch.setattr(lf, "USER", user)
+    monkeypatch.setattr(lf, "PASSWORD", "pw-" + user)
+    return "Basic " + base64.b64encode(f"{user}:pw-{user}".encode()).decode()
+
+
+def test_owner_is_who_created_it_and_a_save_keeps_it(fake_s3, monkeypatch):
+    a = as_user(monkeypatch, "alice")
+    status, out, _ = call("PUT", vault("库1"), KDBX, auth=a, headers={"if-none-match": "*"})
+    assert status == 201
+    assert fake_s3._current("keepass/库1.kdbx")["meta"]["owner"] == "alice"
+    b = as_user(monkeypatch, "bob")
+    status, out, _ = call("PUT", vault("库1"), KDBX + b"by bob", auth=b, headers={"if-match": out["etag"]})
+    assert status == 200
+    assert fake_s3._current("keepass/库1.kdbx")["meta"]["owner"] == "alice"      # bob saved, alice still owns it
+    tree = call("GET", "/api/tree", auth=b)[1]
+    assert tree["folders"][0]["files"][0]["owner"] == "alice"
+
+
+def test_owner_survives_a_non_ascii_user(fake_s3, monkeypatch):
+    """S3 metadata is ASCII only: a user name like 张三 is stored percent-encoded and shown as typed."""
+    u = as_user(monkeypatch, "张三")
+    call("PUT", file("shared", "team"), KDBX, auth=u, headers={"if-none-match": "*"})
+    assert fake_s3._current("keepass/shared/team.kdbx")["meta"]["owner"].isascii()
+    assert call("GET", "/api/tree", auth=u)[1]["folders"][1]["files"][0]["owner"] == "张三"

@@ -245,6 +245,9 @@ def tree(event):
     by_folder = {MAIN: [], SHARED: []}
     for f in _files(PREFIX):
         by_folder.setdefault(f["folder"], []).append(f)
+    for files in by_folder.values():
+        for f in files:
+            f["owner"] = _owner(f["path"])
     order = [MAIN, SHARED] + sorted(k for k in by_folder if k not in (MAIN, SHARED))
     kind = {MAIN: "main", SHARED: "shared"}
     folders = [{"name": k, "path": PREFIX + (k + "/" if k else ""), "kind": kind.get(k, "personal"),
@@ -274,6 +277,14 @@ def get_vault(event, folder, name):
                         "cache-control": "no-store"}}
 
 
+def _owner(key):
+    """Who created the vault (x-amz-meta-owner), "" when unknown or the file is gone."""
+    try:
+        return urllib.parse.unquote(s3.head_object(Bucket=BUCKET, Key=key).get("Metadata", {}).get("owner", ""))
+    except ClientError:
+        return ""
+
+
 def put_vault(event, folder, name):
     """Never an unconditional overwrite: If-Match = the ETag the caller read, If-None-Match: * = create."""
     key = _key(folder, name)
@@ -283,9 +294,11 @@ def put_vault(event, folder, name):
                                    "an unconditional save could overwrite another tab's or device's change")
     data = _bytes(event)
     cond = {"IfMatch": if_match} if if_match else {"IfNoneMatch": "*"}
+    # owner: whoever created it; a save keeps it (S3 metadata is ASCII, so it is stored percent-encoded)
+    owner = (_owner(key) if if_match else "") or event["identity"]
     try:
         r = s3.put_object(Bucket=BUCKET, Key=key, Body=data, ContentType="application/octet-stream",
-                          ServerSideEncryption="aws:kms", **cond)
+                          ServerSideEncryption="aws:kms", Metadata={"owner": urllib.parse.quote(owner)}, **cond)
     except ClientError as e:
         if _code(e) in ("PreconditionFailed", "ConditionalRequestConflict", "412", "409"):
             raise Conflict(f"vault {name!r} already exists" if not if_match else

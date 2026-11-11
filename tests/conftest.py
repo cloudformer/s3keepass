@@ -72,20 +72,21 @@ class FakeS3:
         if IfMatch is not None and cur["etag"] != IfMatch:
             self._err("PreconditionFailed", "PutObject")
         body = bytes(Body)
-        v = self._add(Key, body=body, etag='"%s"' % hashlib.md5(body + Key.encode()).hexdigest(), deleted=False)
+        v = self._add(Key, body=body, etag='"%s"' % hashlib.md5(body + Key.encode()).hexdigest(), deleted=False,
+                      meta=dict(kwargs.get("Metadata") or {}))
         return {"ETag": v["etag"], "VersionId": v["id"]}
 
     def get_object(self, Bucket, Key, VersionId=None):
         v = next((x for x in self.versions.get(Key, []) if x["id"] == VersionId), None) if VersionId else self._current(Key)
         if not v or v["deleted"]:
             self._err("NoSuchVersion" if VersionId else "NoSuchKey", "GetObject")
-        return {"ETag": v["etag"], "VersionId": v["id"], "Body": io.BytesIO(v["body"])}
+        return {"ETag": v["etag"], "VersionId": v["id"], "Body": io.BytesIO(v["body"]), "Metadata": v.get("meta", {})}
 
     def head_object(self, Bucket, Key):
         cur = self._current(Key)
         if not cur:
             self._err("404", "HeadObject")
-        return {"ETag": cur["etag"]}
+        return {"ETag": cur["etag"], "Metadata": cur.get("meta", {})}
 
     def delete_object(self, Bucket, Key):
         self._add(Key, body=b"", etag="", deleted=True)

@@ -666,17 +666,7 @@ async function showHome() {
 function renderHome() {
   const files = F.folders.find(f => f.name === F.folder).files, v = F.file;
   crumbs('Vaults', ...(F.folder ? [F.folder] : []));
-  toolbar([
-    {icon: '＋', label: 'New vault', title: 'New vault in this folder', do: newVault},
-    {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file to this folder', do: () => $('#file').click()},
-    {icon: '📁', label: 'New folder', title: 'A folder for sorting vaults; it stays once a vault is saved in it', do: newFolder},
-    '|',
-    {icon: '🔓', label: 'Open', title: 'Unlock the vault (Enter)', disabled: !v, do: () => unlock(v)},
-    {icon: '🕘', label: 'Versions', disabled: !v, do: () => versionsDialog(v)},
-    {icon: '🗑', label: 'Delete', disabled: !v, do: () => deleteVault(v)},
-    '|',
-    {icon: '↻', label: 'Refresh', do: showHome},
-  ]);
+  toolbar([{icon: '↻', label: 'Refresh', do: showHome}]);   // actions on files sit on the file list's head
   // left: S3 folders
   const node = (f, depth) => h('div', {class: 'node' + (f.name === F.folder ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
       onclick: () => { F.folder = f.name; F.file = null; vaults = f.files; renderHome(); }},
@@ -692,11 +682,20 @@ function renderHome() {
     h('td', {class: 'muted'}, size(x.size)), h('td', {class: 'muted'}, when(x.modified)),
     h('td', {class: 'muted'}, unlockMark(x.last_unlock))));
   $('#flist').replaceChildren(
-    h('div', {class: 'list-head'}, h('span', {class: 'title', text: F.folder ? `📁 ${F.folder}` : 'Vaults'}),
-      h('span', {class: 'muted'}, `${files.length} vault ${files.length === 1 ? 'file' : 'files'}`)),
+    h('div', {class: 'list-head'},
+      h('div', {class: 'list-title'}, h('span', {class: 'title', text: F.folder ? `📁 ${F.folder}` : 'Vaults'}),
+        h('span', {class: 'muted'}, `${files.length} vault ${files.length === 1 ? 'file' : 'files'}`)),
+      actionRow([
+        {icon: '＋', label: 'New vault', title: 'New vault in this folder', primary: true, do: newVault},
+        {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file to this folder', primary: true, do: () => $('#file').click()},
+        {icon: '📁', label: 'New folder', title: 'A folder for sorting vaults; it stays once a vault is saved in it', primary: true, do: newFolder},
+        {icon: '🔓', label: 'Open', title: 'Unlock the vault (double-click)', disabled: !v, do: () => unlock(v)},
+        {icon: '🕘', label: 'Versions', disabled: !v, do: () => versionsDialog(v)},
+        {icon: '🗑', label: 'Delete', disabled: !v, do: () => deleteVault(v)},
+      ])),
     h('div', {class: 'list-body'}, files.length ? h('table', {},
       h('tr', {}, h('th', {}, 'File'), h('th', {}, 'Owner'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {}, 'Last unlock')), rows)
-      : h('div', {class: 'empty'}, 'No vault files in this folder — ＋ New vault or ⤒ Upload in the toolbar.')));
+      : h('div', {class: 'empty'}, 'No vault files in this folder yet.')));
   // right: the selected file
   const el = $('#fdetail');
   if (!v) { el.replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, safe(false)), 'Select a vault file')); return; }

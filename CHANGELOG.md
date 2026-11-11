@@ -5,6 +5,11 @@
 - Sign-in method is a setting, `AUTH_METHOD`: `web` (HTTP Basic, as before) or `cloudflare` (reserved: refused
   with 503 until it is built, never left open). `GET /api/me` returns who is signed in; the identity (the Basic
   user for now) is what owner and access records will use.
+- Folders: vaults are `vaults/<folder>/<name>.kdbx`, `<folder>` = `shared` or a person's identity (their personal
+  folder). `GET /api/tree` lists the folders (mine, shared, everyone else's) and their files;
+  `/api/files/<folder>/<name>` opens / saves / deletes any of them; `/api/vaults/<name>` is the same in my own
+  folder. Paths are built in one place and refuse `..`, hidden names, nesting and anything outside `vaults/`.
+  Existing vaults move once from `keepass/` to `vaults/<user>/`.
 
 ## 0.1.0 — 2026-10-29
 

@@ -14,11 +14,15 @@ Sign-in, AUTH_METHOD:
     GET    /vendor/<file>.js                  the vendored crypto libraries, public
     GET    /api/ping                          {"ok": true}
     GET    /api/me                            {"identity", "auth_method"}: who is signed in
-    GET    /api/vaults                        the "folder": every keepass/<name>.kdbx
-    GET    /api/vaults/<name>[?version=<id>]  the encrypted file (ETag header); an older version with ?version
-    PUT    /api/vaults/<name>                 save: If-Match <etag> (update) or If-None-Match * (create) required
-    DELETE /api/vaults/<name>                 If-Match <etag> required; the bucket keeps old versions
-    GET    /api/vaults/<name>/versions        the file's S3 versions, newest first
+    GET    /api/tree                          folders under vaults/ (mine, shared, others) and their vault files
+    GET    /api/files/<folder>/<name>[?version=<id>]  the encrypted file (ETag header); an older version with ?version
+    PUT    /api/files/<folder>/<name>         save: If-Match <etag> (update) or If-None-Match * (create) required
+    DELETE /api/files/<folder>/<name>         If-Match <etag> required; the bucket keeps old versions
+    GET    /api/files/<folder>/<name>/versions  the file's S3 versions, newest first
+    /api/vaults[/<name>[/versions]]           the same, in my own folder (vaults/<identity>/)
+
+Storage: vaults/<folder>/<name>.kdbx — <folder> is "shared" or a person's identity (their personal folder). Every
+signed-in person can open every folder for now (no per-person isolation).
 """
 import base64
 import hashlib
@@ -37,7 +41,8 @@ USER = os.environ.get("USER_NAME", "")
 PASSWORD = os.environ.get("PASSWORD", "")
 CONSOLE = os.environ.get("CONSOLE", "1") == "1"
 BUCKET = os.environ.get("BUCKET", "")
-PREFIX = "keepass/"                 # fixed layout: s3://<bucket>/keepass/<name>.kdbx
+PREFIX = "vaults/"                  # fixed layout: s3://<bucket>/vaults/<folder>/<name>.kdbx
+SHARED = "shared"                   # the shared folder; every other folder is a person's (named by identity)
 MAX_BYTES = 5 * 1024 * 1024         # a Function URL takes at most 6 MB per request, base64 included
 
 HERE = os.path.dirname(__file__)
@@ -60,6 +65,8 @@ PAGE_HEADERS = {"content-security-policy": CSP, "x-content-type-options": "nosni
 
 # a vault name: letters of any script (库1), digits, space, _ - . ( ); no "/" or "%"; not starting with "."
 NAME = re.compile(r"\w(?:[\w .()-]{0,62}[\w.()-])?")
+# a folder: "shared" or an identity (a user name, an email); no "/", no space, not starting with "."
+FOLDER = re.compile(r"\w[\w@.+-]{0,127}")
 
 s3 = boto3.client("s3")
 
@@ -166,13 +173,27 @@ def lambda_handler(event, context):
     return _json(status, data)
 
 
-# ---------------- the project's API: keepass/<name>.kdbx in one bucket ----------------
+# ---------------- the project's API: vaults/<folder>/<name>.kdbx in one bucket ----------------
 
-def _key(name):
+def _key(folder, name):
+    """The S3 key of a vault; the only place a path is built, so nothing outside vaults/<folder>/<name>.kdbx."""
+    if not FOLDER.fullmatch(folder) or ".." in folder:
+        raise BadRequest("folder: 'shared' or an identity (letters, digits, @ . + - _), at most 128, not starting "
+                         "with '.' — got " + repr(folder))
     if not NAME.fullmatch(name):
         raise BadRequest("vault name: letters, digits, space, _ - . ( ), at most 64, not starting with '.' or "
                          "a space — got " + repr(name))
-    return f"{PREFIX}{name}.kdbx"
+    return f"{PREFIX}{folder}/{name}.kdbx"
+
+
+def _split(key):
+    """vaults/<folder>/<name>.kdbx -> (folder, name), or None for anything else (nested, not a vault)."""
+    parts = key[len(PREFIX):].split("/")
+    if len(parts) == 2 and parts[1].endswith(".kdbx"):
+        folder, name = parts[0], parts[1][:-5]
+        if FOLDER.fullmatch(folder) and NAME.fullmatch(name):
+            return folder, name
+    return None
 
 
 def _header(event, name):
@@ -207,20 +228,37 @@ def me(event):
     return {"identity": event["identity"], "auth_method": AUTH_METHOD}
 
 
-def list_vaults(event):
-    vaults = []
-    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=BUCKET, Prefix=PREFIX):
+def _files(prefix):
+    """Every vault file under prefix, as the UI shows it."""
+    files = []
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=BUCKET, Prefix=prefix):
         for o in page.get("Contents", []):
-            name = o["Key"][len(PREFIX):]
-            if name.endswith(".kdbx") and "/" not in name:
-                vaults.append({"name": name[:-5], "size": o["Size"], "modified": _iso(o["LastModified"]),
-                               "etag": o["ETag"]})
-    vaults.sort(key=lambda v: v["name"])
-    return {"vaults": vaults, "backend": f"S3 list {PREFIX} · {len(vaults)} vaults"}
+            where = _split(o["Key"])
+            if where:
+                files.append({"folder": where[0], "name": where[1], "path": o["Key"], "size": o["Size"],
+                              "modified": _iso(o["LastModified"]), "etag": o["ETag"]})
+    return sorted(files, key=lambda f: (f["folder"], f["name"]))
 
 
-def get_vault(event, name):
-    key = _key(name)
+def tree(event):
+    """Folders, mine first, then shared, then everyone else's; mine and shared are listed even when empty."""
+    me = event["identity"]
+    by_folder = {me: [], SHARED: []}
+    for f in _files(PREFIX):
+        by_folder.setdefault(f["folder"], []).append(f)
+    order = [me, SHARED] + sorted(k for k in by_folder if k not in (me, SHARED))
+    folders = [{"name": k, "kind": "shared" if k == SHARED else "personal", "mine": k == me, "files": by_folder[k]}
+               for k in order]
+    return {"me": me, "folders": folders, "backend": f"S3 list {PREFIX} · {sum(len(f['files']) for f in folders)} files"}
+
+
+def list_vaults(event):
+    vaults = [{k: f[k] for k in ("name", "size", "modified", "etag")} for f in _files(f"{PREFIX}{event['identity']}/")]
+    return {"vaults": vaults, "backend": f"S3 list {PREFIX}{event['identity']}/ · {len(vaults)} vaults"}
+
+
+def get_vault(event, folder, name):
+    key = _key(folder, name)
     version = ((event.get("queryStringParameters") or {}).get("version") or "").strip()
     try:
         o = s3.get_object(Bucket=BUCKET, Key=key, **({"VersionId": version} if version else {}))
@@ -235,9 +273,9 @@ def get_vault(event, name):
                         "cache-control": "no-store"}}
 
 
-def put_vault(event, name):
+def put_vault(event, folder, name):
     """Never an unconditional overwrite: If-Match = the ETag the caller read, If-None-Match: * = create."""
-    key = _key(name)
+    key = _key(folder, name)
     if_match, if_none = _header(event, "if-match"), _header(event, "if-none-match")
     if not if_match and if_none != "*":
         raise PreconditionRequired("send If-Match: <etag> (update) or If-None-Match: * (create); "
@@ -260,8 +298,8 @@ def put_vault(event, name):
         "backend": f"S3 put {key} · {len(data)} bytes · {'If-Match' if if_match else 'If-None-Match *'}"}
 
 
-def delete_vault(event, name):
-    key = _key(name)
+def delete_vault(event, folder, name):
+    key = _key(folder, name)
     if_match = _header(event, "if-match")
     if not if_match:
         raise PreconditionRequired("send If-Match: <etag> of the version you mean to delete")
@@ -277,8 +315,8 @@ def delete_vault(event, name):
     return {"deleted": name, "backend": f"S3 delete {key} · older versions kept"}
 
 
-def list_versions(event, name):
-    key = _key(name)
+def list_versions(event, folder, name):
+    key = _key(folder, name)
     versions = []
     for page in s3.get_paginator("list_object_versions").paginate(Bucket=BUCKET, Prefix=key):
         for v in page.get("Versions", []):
@@ -295,12 +333,23 @@ def list_versions(event, name):
     return {"name": name, "versions": versions, "backend": f"S3 list versions {key} · {len(versions)}"}
 
 
+def _mine(handler):
+    """/api/vaults/<name>: the same handler, in the caller's own folder."""
+    return lambda event, name: handler(event, event["identity"], name)
+
+
+FILE, MINE = r"/api/files/(?P<folder>[^/]+)/(?P<name>[^/]+)", r"/api/vaults/(?P<name>[^/]+)"
 ROUTES = [
     ("GET",    re.compile(r"/api/ping"), ping),
     ("GET",    re.compile(r"/api/me"), me),
+    ("GET",    re.compile(r"/api/tree"), tree),
+    ("GET",    re.compile(FILE + "/versions"), list_versions),
+    ("GET",    re.compile(FILE), get_vault),
+    ("PUT",    re.compile(FILE), put_vault),
+    ("DELETE", re.compile(FILE), delete_vault),
     ("GET",    re.compile(r"/api/vaults"), list_vaults),
-    ("GET",    re.compile(r"/api/vaults/(?P<name>[^/]+)/versions"), list_versions),
-    ("GET",    re.compile(r"/api/vaults/(?P<name>[^/]+)"), get_vault),
-    ("PUT",    re.compile(r"/api/vaults/(?P<name>[^/]+)"), put_vault),
-    ("DELETE", re.compile(r"/api/vaults/(?P<name>[^/]+)"), delete_vault),
+    ("GET",    re.compile(MINE + "/versions"), _mine(list_versions)),
+    ("GET",    re.compile(MINE), _mine(get_vault)),
+    ("PUT",    re.compile(MINE), _mine(put_vault)),
+    ("DELETE", re.compile(MINE), _mine(delete_vault)),
 ]

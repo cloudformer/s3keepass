@@ -77,6 +77,20 @@ resource "aws_s3_bucket_lifecycle_configuration" "vaults" {
       days_after_initiation = 1
     }
   }
+  # access records: one small object per event under log/, gone after var.log_retention_days
+  rule {
+    id     = "expire-access-records"
+    status = "Enabled"
+    filter {
+      prefix = "log/"
+    }
+    expiration {
+      days = var.log_retention_days
+    }
+    noncurrent_version_expiration {
+      noncurrent_days = 1
+    }
+  }
 }
 
 # ---------------- IAM: one role, least privilege — only keepass/*.kdbx ----------------
@@ -109,10 +123,16 @@ resource "aws_iam_role_policy" "lambda" {
         Resource = "${aws_s3_bucket.vaults.arn}/${local.prefix}*.kdbx"
       },
       {
+        # access records: write one per event, read them back for the UI; never delete
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${aws_s3_bucket.vaults.arn}/log/*"
+      },
+      {
         Effect    = "Allow"
         Action    = ["s3:ListBucket", "s3:ListBucketVersions"]
         Resource  = aws_s3_bucket.vaults.arn
-        Condition = { StringLike = { "s3:prefix" = ["${local.prefix}*"] } }
+        Condition = { StringLike = { "s3:prefix" = ["${local.prefix}*", "log/*"] } }
       }
     ]
   })

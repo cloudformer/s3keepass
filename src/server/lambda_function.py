@@ -14,16 +14,23 @@ Sign-in, AUTH_METHOD:
     GET    /vendor/<file>.js                  the vendored crypto libraries, public
     GET    /api/ping                          {"ok": true}
     GET    /api/me                            {"identity", "auth_method"}: who is signed in
-    GET    /api/tree                          the folders under keepass/ (main, shared, others) and their vault files
+    GET    /api/tree                          the folders under keepass/ (the top level first) and their vault files
     GET    /api/vaults                        the main folder's vaults (keepass/<name>.kdbx)
     GET    /api/vaults/<name>[?version=<id>]  the encrypted file (ETag header); an older version with ?version
     PUT    /api/vaults/<name>                 save: If-Match <etag> (update) or If-None-Match * (create) required
     DELETE /api/vaults/<name>                 If-Match <etag> required; the bucket keeps old versions
     GET    /api/vaults/<name>/versions        the file's S3 versions, newest first
     /api/files/<folder>/<name>[/versions]     the same, in a sub-folder (keepass/<folder>/<name>.kdbx)
+    POST   /api/audit/unlock                  {"path", "ok"}: the browser reports an unlock result (self-reported:
+                                              a file downloaded around the page never shows up here)
+    GET    /api/audit?path=<key>&limit=<n>    a vault's access records, newest first
 
-Storage: keepass/<name>.kdbx is the main folder (every vault so far); keepass/shared/ is the shared folder and
-keepass/<identity>/ a person's own. Every signed-in person can open every folder for now (no per-person isolation).
+Access records: every read, save, create, delete and reported unlock is one small JSON object,
+log/<vault key>/<time>-<random>.json (write-only, so concurrent writers never collide; the bucket's lifecycle
+rule expires them), and one JSON line in CloudWatch. Recording never blocks the vault: a failed write is logged.
+
+Storage: keepass/<name>.kdbx (the top level, every vault so far) or keepass/<folder>/<name>.kdbx. Folders are only
+names for people to sort by: no rules, no permissions — every signed-in person opens every folder.
 """
 import base64
 import hashlib
@@ -33,6 +40,7 @@ import os
 import re
 import time
 import urllib.parse
+import uuid
 
 import boto3
 from botocore.exceptions import ClientError
@@ -43,7 +51,8 @@ PASSWORD = os.environ.get("PASSWORD", "")
 CONSOLE = os.environ.get("CONSOLE", "1") == "1"
 BUCKET = os.environ.get("BUCKET", "")
 PREFIX = "keepass/"                 # fixed layout: s3://<bucket>/keepass/[<folder>/]<name>.kdbx
-MAIN, SHARED = "", "shared"         # the main folder is keepass/ itself; shared and a person's are one level down
+MAIN = ""                           # the top level, keepass/ itself; a folder is one level down
+LOG = "log/"                        # access records: s3://<bucket>/log/<vault key>/<time>-<random>.json
 MAX_BYTES = 5 * 1024 * 1024         # a Function URL takes at most 6 MB per request, base64 included
 
 HERE = os.path.dirname(__file__)
@@ -66,7 +75,7 @@ PAGE_HEADERS = {"content-security-policy": CSP, "x-content-type-options": "nosni
 
 # a vault name: letters of any script (库1), digits, space, _ - . ( ); no "/" or "%"; not starting with "."
 NAME = re.compile(r"\w(?:[\w .()-]{0,62}[\w.()-])?")
-# a folder: "shared" or an identity (a user name, an email); no "/", no space, not starting with "."
+# a folder name (shared, frank, frank@example.com …): no "/", no space, not starting with "."
 FOLDER = re.compile(r"\w[\w@.+-]{0,127}")
 
 s3 = boto3.client("s3")
@@ -179,8 +188,8 @@ def lambda_handler(event, context):
 def _key(folder, name):
     """The S3 key of a vault; the only place a path is built, so nothing outside keepass/[<folder>/]<name>.kdbx."""
     if folder != MAIN and (not FOLDER.fullmatch(folder) or ".." in folder):
-        raise BadRequest("folder: 'shared' or an identity (letters, digits, @ . + - _), at most 128, not starting "
-                         "with '.' — got " + repr(folder))
+        raise BadRequest("folder: letters, digits, @ . + - _, at most 128, not starting with '.' — got "
+                         + repr(folder))
     if not NAME.fullmatch(name):
         raise BadRequest("vault name: letters, digits, space, _ - . ( ), at most 64, not starting with '.' or "
                          "a space — got " + repr(name))
@@ -216,6 +225,11 @@ def _bytes(event):
     return data
 
 
+def datetime_now():
+    import datetime
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
 def _iso(dt):
     return dt.isoformat().replace("+00:00", "Z")
 
@@ -241,17 +255,14 @@ def _files(prefix):
 
 
 def tree(event):
-    """Folders: main (keepass/ itself) first, then shared, then each person's; main and shared even when empty."""
-    by_folder = {MAIN: [], SHARED: []}
+    """The top level (keepass/ itself, always listed) first, then every folder that holds a vault, by name."""
+    by_folder = {MAIN: []}
     for f in _files(PREFIX):
+        f["owner"] = _owner(f["path"])
+        f["last_unlock"] = (_records(f["path"], 1, action="unlock") or [None])[0]
         by_folder.setdefault(f["folder"], []).append(f)
-    for files in by_folder.values():
-        for f in files:
-            f["owner"] = _owner(f["path"])
-    order = [MAIN, SHARED] + sorted(k for k in by_folder if k not in (MAIN, SHARED))
-    kind = {MAIN: "main", SHARED: "shared"}
-    folders = [{"name": k, "path": PREFIX + (k + "/" if k else ""), "kind": kind.get(k, "personal"),
-                "files": by_folder[k]} for k in order]
+    folders = [{"name": k, "path": PREFIX + (k + "/" if k else ""), "files": by_folder[k]}
+               for k in sorted(by_folder)]   # "" sorts first
     return {"me": event["identity"], "folders": folders,
             "backend": f"S3 list {PREFIX} · {sum(len(f['files']) for f in folders)} files"}
 
@@ -271,6 +282,7 @@ def get_vault(event, folder, name):
             raise NotFound(f"no vault {name!r}" + (f" version {version}" if version else "")) from None
         raise
     body = o["Body"].read()
+    _record(event, key, "read", etag=o["ETag"])
     return {"statusCode": 200, "isBase64Encoded": True, "body": base64.b64encode(body).decode(),
             "headers": {"content-type": "application/octet-stream", "etag": o["ETag"],
                         "x-version-id": o.get("VersionId") or "", "x-backend": f"S3 get {key} · {len(body)} bytes",
@@ -283,6 +295,57 @@ def _owner(key):
         return urllib.parse.unquote(s3.head_object(Bucket=BUCKET, Key=key).get("Metadata", {}).get("owner", ""))
     except ClientError:
         return ""
+
+
+# ---- access records ----
+
+def _record(event, key, action, **extra):
+    """One access record: a JSON line for CloudWatch and an object under log/. Never raises."""
+    rec = dict({"at": _iso(datetime_now()), "who": event["identity"], "path": key, "action": action}, **extra)
+    print(json.dumps({"audit": rec}, ensure_ascii=False))
+    try:
+        s3.put_object(Bucket=BUCKET, Key=f"{LOG}{key}/{time.time_ns():020d}-{uuid.uuid4().hex[:8]}.json",
+                      Body=json.dumps(rec, ensure_ascii=False).encode(), ContentType="application/json")
+    except Exception as e:  # noqa: BLE001 - a lost record must not lose the vault operation
+        print(json.dumps({"audit_write_failed": f"{type(e).__name__}: {e}", "path": key}))
+
+
+def _records(key, limit, action=None):
+    """The vault's records, newest first (keys sort by time)."""
+    keys = []
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=BUCKET, Prefix=f"{LOG}{key}/"):
+        keys += [o["Key"] for o in page.get("Contents", []) if o["Key"].endswith(".json")]
+    out = []
+    for k in sorted(keys, reverse=True):
+        rec = json.loads(s3.get_object(Bucket=BUCKET, Key=k)["Body"].read())
+        if action is None or rec.get("action") == action:
+            out.append(rec)
+            if len(out) >= limit:
+                break
+    return out
+
+
+def _vault_key(path):
+    if not isinstance(path, str) or not path.startswith(PREFIX) or not _split(path):
+        raise BadRequest("path: a vault's key, keepass/[<folder>/]<name>.kdbx — got " + repr(path))
+    return path
+
+
+def report_unlock(event):
+    """The browser reports an unlock result: only the path and true / false, never anything secret."""
+    data = _body(event)
+    if set(data) != {"path", "ok"} or not isinstance(data["ok"], bool):
+        raise BadRequest('send exactly {"path": "<vault key>", "ok": true | false}')
+    key = _vault_key(data["path"])
+    _record(event, key, "unlock", ok=data["ok"], self_reported=True)
+    return {"recorded": True}
+
+
+def audit(event):
+    q = event.get("queryStringParameters") or {}
+    key = _vault_key(q.get("path"))
+    limit = min(max(int(q.get("limit") or 20), 1), 200) if str(q.get("limit") or "20").isdigit() else 20
+    return {"path": key, "records": _records(key, limit), "backend": f"S3 list + get {LOG}{key}/"}
 
 
 def put_vault(event, folder, name):
@@ -307,6 +370,7 @@ def put_vault(event, folder, name):
         if _code(e) in ("NoSuchKey", "404"):
             raise NotFound(f"no vault {name!r}") from None
         raise
+    _record(event, key, "save" if if_match else "create", etag=r["ETag"])
     return (200 if if_match else 201), {
         "name": name, "etag": r["ETag"], "version_id": r.get("VersionId") or "", "size": len(data),
         "backend": f"S3 put {key} · {len(data)} bytes · {'If-Match' if if_match else 'If-None-Match *'}"}
@@ -326,6 +390,7 @@ def delete_vault(event, folder, name):
     if etag != if_match:
         raise Conflict(f"vault {name!r} was changed elsewhere since you listed it; nothing was deleted")
     s3.delete_object(Bucket=BUCKET, Key=key)
+    _record(event, key, "delete", etag=etag)
     return {"deleted": name, "backend": f"S3 delete {key} · older versions kept"}
 
 
@@ -357,6 +422,8 @@ ROUTES = [
     ("GET",    re.compile(r"/api/ping"), ping),
     ("GET",    re.compile(r"/api/me"), me),
     ("GET",    re.compile(r"/api/tree"), tree),
+    ("POST",   re.compile(r"/api/audit/unlock"), report_unlock),
+    ("GET",    re.compile(r"/api/audit"), audit),
     ("GET",    re.compile(FILE + "/versions"), list_versions),
     ("GET",    re.compile(FILE), get_vault),
     ("PUT",    re.compile(FILE), put_vault),

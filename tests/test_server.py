@@ -34,6 +34,11 @@ def vault(name):
     return "/api/vaults/" + urllib.parse.quote(name)   # a browser percent-encodes 库1
 
 
+def vault_keys(fake):
+    """The vault files in the bucket (log/ holds the access records, task 4)."""
+    return {k for k in fake.versions if k.startswith("keepass/")}
+
+
 def create(name, data=KDBX):
     status, out, _ = call("PUT", vault(name), data, headers={"if-none-match": "*"})
     assert status == 201, out
@@ -108,7 +113,7 @@ def test_create_list_and_open_vaults(fake_s3):
     assert status == 200 and data == KDBX and headers["etag"] == etag
     assert headers["content-type"] == "application/octet-stream" and "S3 get" in headers["x-backend"]
     assert float(headers["x-server-ms"]) >= 0
-    assert set(fake_s3.versions) == {"keepass/库1.kdbx", "keepass/库2.kdbx"}
+    assert vault_keys(fake_s3) == {"keepass/库1.kdbx", "keepass/库2.kdbx"}   # task 4: log/ holds access records
 
 
 def test_create_refuses_an_existing_name(fake_s3):
@@ -146,12 +151,12 @@ def test_unconditional_save_is_refused(fake_s3):
 def test_saves_are_sse_kms_ciphertext(fake_s3):
     """Acceptance 5: only KeePass files are accepted, and every put asks for SSE-KMS."""
     create("库1")
-    assert fake_s3.calls[-1]["ServerSideEncryption"] == "aws:kms"
+    assert [c for c in fake_s3.calls if c["Key"].startswith("keepass/")][-1]["ServerSideEncryption"] == "aws:kms"   # task 4: skip log/ writes
     status, out, _ = call("PUT", vault("plain"), b'{"password": "hunter2"}', headers={"if-none-match": "*"})
     assert status == 400 and "not a KeePass file" in out["error"]
     assert call("PUT", vault("empty"), b"", headers={"if-none-match": "*"})[0] == 400
     assert call("PUT", vault("big"), KDBX + b"x" * lf.MAX_BYTES, headers={"if-none-match": "*"})[0] == 413
-    assert set(fake_s3.versions) == {"keepass/库1.kdbx"}
+    assert vault_keys(fake_s3) == {"keepass/库1.kdbx"}   # task 4: log/ holds access records
 
 
 @pytest.mark.parametrize("name,status", [
@@ -204,18 +209,18 @@ def test_unknown_routes(fake_s3):
     assert call("POST", vault("库1"), KDBX)[0] == 404
 
 
-# ---- task 2: folders — keepass/ (main), keepass/shared/, keepass/<identity>/ ----
+# ---- task 2: folders — keepass/ (top level) and keepass/<folder>/, names only, no rules ----
 
 def file(folder, name):
     return "/api/files/" + urllib.parse.quote(folder, safe="") + "/" + urllib.parse.quote(name, safe="")
 
 
 def test_files_in_any_folder(fake_s3):
-    """A vault lives in a folder: main (keepass/), shared, or someone's. /api/vaults/<name> = the main folder."""
+    """A vault lives at the top level or in any folder. /api/vaults/<name> = the top level, as before."""
     assert call("PUT", file("shared", "team"), KDBX, headers={"if-none-match": "*"})[0] == 201
     assert call("PUT", file("bob@example.com", "bob1"), KDBX + b"b", headers={"if-none-match": "*"})[0] == 201
     mine = create("mine")
-    assert set(fake_s3.versions) == {"keepass/shared/team.kdbx", "keepass/bob@example.com/bob1.kdbx", "keepass/mine.kdbx"}
+    assert vault_keys(fake_s3) == {"keepass/shared/team.kdbx", "keepass/bob@example.com/bob1.kdbx", "keepass/mine.kdbx"}
     status, data, headers = call("GET", vault("mine"))
     assert status == 200 and data == KDBX and headers["etag"] == mine
     assert call("GET", file("bob@example.com", "bob1"))[1] == KDBX + b"b"    # no per-person isolation yet
@@ -242,7 +247,7 @@ def test_paths_cannot_escape_or_nest(fake_s3):
 
 
 def test_tree_lists_folders_and_files(fake_s3):
-    """GET /api/tree: main and shared always present, then each person's folder, each file with its metadata."""
+    """GET /api/tree: the top level first (even empty), then every folder that holds a vault, by name."""
     create("mine")
     call("PUT", file("bob@example.com", "b"), KDBX, headers={"if-none-match": "*"})
     fake_s3._add("keepass/shared/readme.txt", body=b"x", etag='"t"', deleted=False)      # not a vault: ignored
@@ -250,14 +255,12 @@ def test_tree_lists_folders_and_files(fake_s3):
     fake_s3._add("other/old.kdbx", body=KDBX, etag='"o"', deleted=False)                 # outside keepass/: ignored
     status, out, _ = call("GET", "/api/tree")
     assert status == 200 and out["me"] == "admin"
-    assert [f["name"] for f in out["folders"]] == ["", "shared", "bob@example.com"]       # main, shared, others
-    assert [f["kind"] for f in out["folders"]] == ["main", "shared", "personal"]
-    assert [f["path"] for f in out["folders"]] == ["keepass/", "keepass/shared/", "keepass/bob@example.com/"]
+    assert [f["name"] for f in out["folders"]] == ["", "bob@example.com"]          # shared holds no vault: not listed
+    assert [f["path"] for f in out["folders"]] == ["keepass/", "keepass/bob@example.com/"]
     mine = out["folders"][0]["files"][0]
     assert mine["name"] == "mine" and mine["path"] == "keepass/mine.kdbx" and mine["size"] == len(KDBX)
     assert mine["modified"] and mine["etag"]
-    assert out["folders"][1]["files"] == []
-    assert [f["name"] for f in out["folders"][2]["files"]] == ["b"]
+    assert [f["name"] for f in out["folders"][1]["files"]] == ["b"]
 
 
 # ---- task 3: owner = who created the vault (web: the user; cloudflare: the email) ----
@@ -286,4 +289,60 @@ def test_owner_survives_a_non_ascii_user(fake_s3, monkeypatch):
     u = as_user(monkeypatch, "张三")
     call("PUT", file("shared", "team"), KDBX, auth=u, headers={"if-none-match": "*"})
     assert fake_s3._current("keepass/shared/team.kdbx")["meta"]["owner"].isascii()
-    assert call("GET", "/api/tree", auth=u)[1]["folders"][1]["files"][0]["owner"] == "张三"
+    assert call("GET", "/api/tree", auth=u)[1]["folders"][1]["files"][0]["owner"] == "张三"   # folders: "", shared
+
+
+# ---- task 4: access records — one small JSON per event under log/, newest first; also one CloudWatch line ----
+
+def records(path, limit=None):
+    status, out, _ = call("GET", "/api/audit", query=dict({"path": path}, **({"limit": str(limit)} if limit else {})))
+    assert status == 200, out
+    return out["records"]
+
+
+def test_every_read_save_create_delete_is_recorded(fake_s3, capsys):
+    etag = create("库1")
+    call("GET", vault("库1"))
+    etag2 = call("PUT", vault("库1"), KDBX + b"2", headers={"if-match": etag})[1]["etag"]
+    call("DELETE", vault("库1"), headers={"if-match": etag2})
+    recs = records("keepass/库1.kdbx")
+    assert [r["action"] for r in recs] == ["delete", "save", "read", "create"]          # newest first
+    assert all(r["who"] == "admin" and r["path"] == "keepass/库1.kdbx" and r["at"] for r in recs)
+    assert recs[1]["etag"] == etag2 and recs[3]["etag"] == etag                          # the ETag after the save
+    assert all(k.startswith("log/keepass/库1.kdbx/") and k.endswith(".json") for k in fake_s3.versions if k.startswith("log/"))
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line.startswith("{")]
+    assert [l["audit"]["action"] for l in lines] == ["create", "read", "save", "delete"]   # CloudWatch: one JSON line each
+
+
+def test_unlock_result_is_self_reported_and_carries_no_secret(fake_s3):
+    create("库1")
+    assert call("POST", "/api/audit/unlock", json.dumps({"path": "keepass/库1.kdbx", "ok": False}).encode(),
+                headers={"content-type": "application/json"})[0] == 200
+    assert call("POST", "/api/audit/unlock", json.dumps({"path": "keepass/库1.kdbx", "ok": True}).encode())[0] == 200
+    for bad in ({"path": "keepass/库1.kdbx", "ok": True, "password": "x"},         # anything but path and ok: refused
+                {"path": "keepass/库1.kdbx", "ok": "yes"}, {"path": "../etc/passwd", "ok": True}, {"ok": True}):
+        assert call("POST", "/api/audit/unlock", json.dumps(bad).encode())[0] == 400, bad
+    recs = records("keepass/库1.kdbx")
+    assert [(r["action"], r.get("ok")) for r in recs[:2]] == [("unlock", True), ("unlock", False)]
+    assert recs[0]["self_reported"] is True
+
+
+def test_records_newest_first_with_a_limit_and_the_tree_shows_the_last_unlock(fake_s3):
+    create("库1")
+    for ok in (True, False, True):
+        call("POST", "/api/audit/unlock", json.dumps({"path": "keepass/库1.kdbx", "ok": ok}).encode())
+    assert len(records("keepass/库1.kdbx", limit=2)) == 2
+    assert call("GET", "/api/audit", query={"path": "../x", "limit": "2"})[0] == 400
+    last = call("GET", "/api/tree")[1]["folders"][0]["files"][0]["last_unlock"]
+    assert last["ok"] is True and last["who"] == "admin" and last["at"]
+
+
+def test_a_failing_log_never_blocks_the_vault(fake_s3, monkeypatch):
+    real_put = fake_s3.put_object
+    def put(**kw):
+        if kw["Key"].startswith("log/"):
+            raise RuntimeError("log bucket down")
+        return real_put(**kw)
+    monkeypatch.setattr(fake_s3, "put_object", put)
+    assert create("库1")                                          # the save itself succeeds
+    assert call("GET", vault("库1"))[0] == 200

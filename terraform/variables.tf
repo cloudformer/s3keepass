@@ -86,6 +86,12 @@ variable "keep_versions" {
   }
 }
 
+variable "log_retention_days" {
+  description = "Days an access record (log/, one object per read / save / unlock) is kept"
+  type        = number
+  default     = 90
+}
+
 variable "force_destroy" {
   description = "true lets `terraform destroy` delete the bucket with every vault and version in it"
   type        = bool

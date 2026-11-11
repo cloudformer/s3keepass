@@ -5,13 +5,18 @@
 - Sign-in method is a setting, `AUTH_METHOD`: `web` (HTTP Basic, as before) or `cloudflare` (reserved: refused
   with 503 until it is built, never left open). `GET /api/me` returns who is signed in; the identity (the Basic
   user for now) is what owner and access records will use.
-- Folders under the same `keepass/` prefix, nothing moves: `keepass/<name>.kdbx` is the main folder (every vault
-  so far), `keepass/shared/` the shared one, `keepass/<identity>/` a person's. `GET /api/tree` lists them and their
-  files; `/api/files/<folder>/<name>` opens / saves / deletes a vault in a sub-folder, `/api/vaults/<name>` in the
+- Folders under the same `keepass/` prefix, nothing moves: `keepass/<name>.kdbx` (the top level, every vault so
+  far) or `keepass/<folder>/<name>.kdbx`. Folders are names for people to sort by — no rules, no permissions.
+  `GET /api/tree` lists them and their files; `/api/files/<folder>/<name>` opens / saves / deletes a vault in a sub-folder, `/api/vaults/<name>` in the
   main folder as before. Paths are built in one place and refuse `..`, hidden names, deeper nesting and anything
   outside `keepass/`.
 - Owner: who created a vault (the web user; with Cloudflare, the email) is kept in the file's S3 metadata
   (`x-amz-meta-owner`); later saves by anyone keep it. `/api/tree` shows it.
+- Access records in the same bucket: every read, save, create, delete and unlock is one small JSON object under
+  `log/<vault key>/` (write-only, so writers never collide) plus one JSON line in CloudWatch; a failed record never
+  blocks the vault. The unlock result is reported by the browser (`POST /api/audit/unlock`, path and true / false
+  only) — a file fetched around the page does not show up. `GET /api/audit?path=&limit=` lists a vault's records,
+  newest first; `/api/tree` shows each vault's last unlock. `log_retention_days` (default 90) expires them.
 
 ## 0.1.0 — 2026-10-29
 

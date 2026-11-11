@@ -116,6 +116,9 @@ tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
 .empty .big .safe { width: 44px; height: 44px; }
 .list-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); justify-content: space-between; }
 .list-head .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-head { flex-wrap: wrap; }
+.list-title { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.list-actions { display: flex; gap: 6px; flex-wrap: wrap; }
 .list-body { flex: 1; overflow: auto; }
 .list-body tr.row { cursor: default; }
 .list-body td.t { font-weight: 500; }
@@ -630,6 +633,11 @@ addEventListener('focus', () => { if (clearOnFocus) clearClipboard(); });
 let S = null, vaults = [];
 let saving = null, saveAgain = false;
 
+// the same buttons as the top bar, placed where they act (the entries list's head)
+function actionRow(items) {
+  return h('div', {class: 'list-actions'}, ...items.map(it => h('button', {class: 'btn sm' + (it.primary ? ' primary' : ''),
+    title: it.title || it.label, disabled: !!it.disabled, onclick: it.do}, it.icon, ' ', it.label)));
+}
 function toolbar(items) {
   $('#tools').replaceChildren(...items.map(it => it === '|' ? h('div', {class: 'sep'}) :
     h('button', {class: 'tb', title: it.title || it.label, disabled: !!it.disabled, onclick: it.do}, it.icon, ' ', h('span', {class: 'lbl'}, it.label))));
@@ -925,15 +933,9 @@ function visibleEntries() {
 
 function renderVault() {
   if (!S) return;
-  const ro = !!S.conflict, inBin = Vault.inRecycleBin(S.db, S.group);
+  const ro = !!S.conflict;
   crumbs('Vaults', ...(S.folder ? [S.folder] : []), `${S.name}.kdbx`);
   toolbar([
-    {icon: '＋', label: 'New entry', title: 'New entry in this group', disabled: ro || inBin, do: () => entryDialog(null)},
-    {icon: '＋', label: 'New group', title: 'New group inside this group', disabled: ro || inBin, do: () => groupDialog(null)},
-    {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
-    {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)},
-    {icon: '⇢', label: 'Move to…', title: 'Move the ticked entries (or the selected one) to another group', disabled: ro || !movable().length, do: moveDialog},
-    '|',
     {icon: '👤', label: 'Copy user', title: 'Copy the user name (⌘B)', disabled: !S.entry, do: () => copyField('username')},
     {icon: '🔑', label: 'Copy password', title: 'Copy the password (⌘C)', disabled: !S.entry, do: () => copyField('password')},
     '|',
@@ -980,9 +982,18 @@ function renderList(ro) {
   const list = visibleEntries(), searching = !!S.search.trim();
   if (S.entry && !list.includes(S.entry)) S.entry = null;
   for (const e of [...S.ticked]) if (!list.includes(e)) S.ticked.delete(e);
+  const inBin = Vault.inRecycleBin(S.db, S.group);
   const head = h('div', {class: 'list-head'},
-    h('span', {class: 'title', text: searching ? `Search: ${S.search}` : groupPath(S.group).slice(1).join(' / ') || S.group.name}),
-    h('span', {class: 'muted'}, `${list.length} ${list.length === 1 ? 'entry' : 'entries'}`));
+    h('div', {class: 'list-title'},
+      h('span', {class: 'title', text: searching ? `Search: ${S.search}` : groupPath(S.group).slice(1).join(' / ') || S.group.name}),
+      h('span', {class: 'muted'}, `${list.length} ${list.length === 1 ? 'entry' : 'entries'}`)),
+    actionRow([
+      {icon: '＋', label: 'New entry', title: 'New entry in this group', primary: true, disabled: ro || inBin, do: () => entryDialog(null)},
+      {icon: '＋', label: 'New group', title: 'New group inside this group', primary: true, disabled: ro || inBin, do: () => groupDialog(null)},
+      {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
+      {icon: '⇢', label: 'Move to…', title: 'Move the ticked entries (or the selected one) to another group', disabled: ro || !movable().length, do: moveDialog},
+      {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)},
+    ]));
   const banner = S.conflict ? h('div', {class: 'banner'},
     h('span', {}, h('b', {}, 'Not saved. '), 'This vault was changed elsewhere (another tab or device) after you opened it. ' +
       'Nothing was overwritten; your last change exists only in this tab.'),
@@ -1007,9 +1018,7 @@ function renderList(ro) {
         onchange: ev => { for (const e of list) ev.target.checked ? S.ticked.add(e) : S.ticked.delete(e); renderVault(); }})),
       h('th', {}, 'Title'), h('th', {}, 'User name'), h('th', {}, 'URL'), searching ? h('th', {}, 'Group') : null, h('th', {}, 'Modified')),
     rows) : h('div', {class: 'empty'}, searching ? 'No match.' : Vault.inRecycleBin(S.db, S.group) ? 'Nothing in here.' :
-      h('div', {}, 'No entries in this group.', ro ? null : h('div', {style: 'margin-top:10px'},
-        h('button', {class: 'btn primary', onclick: () => entryDialog(null)}, '＋ New entry'), ' ',
-        h('button', {class: 'btn primary', onclick: () => groupDialog(null)}, '＋ New group'))));
+      h('div', {}, 'No entries in this group.'));
   $('#list').replaceChildren(...[head, banner, h('div', {class: 'list-body'}, body)].filter(Boolean));
 }
 

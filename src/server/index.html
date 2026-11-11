@@ -110,6 +110,9 @@ tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
 .node .caret { width: 16px; text-align: center; color: var(--faint); font-size: 10px; flex: none; }
 .node .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node .count { font-size: 11px; color: var(--faint); }
+.safe { display: inline-block; width: 1.15em; height: 1.15em; vertical-align: -0.2em; }
+.safe svg { width: 100%; height: 100%; display: block; }
+.empty .big .safe { width: 44px; height: 44px; }
 .list-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); justify-content: space-between; }
 .list-head .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .list-body { flex: 1; overflow: auto; }
@@ -308,6 +311,22 @@ const NAME_RE = /^[\p{L}\p{N}_](?:[\p{L}\p{N}_ .()-]{0,62}[\p{L}\p{N}_.()-])?$/u
 const FOLDER_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_@.+-]{0,127}$/u;            // = lambda_function.FOLDER
 
 // h('div', {class: 'x', onclick: f}, child, 'text') — user data only ever becomes text, never HTML
+const SAFE_BODY = '<rect x="2" y="2.5" width="20" height="17.5" rx="2" fill="#9ca3af" stroke="#4b5563"/>' +
+  '<rect x="5" y="20" width="3.5" height="1.8" rx=".5" fill="#4b5563"/><rect x="15.5" y="20" width="3.5" height="1.8" rx=".5" fill="#4b5563"/>';
+const SAFE_SVG = {
+  closed: '<svg viewBox="0 0 24 24">' + SAFE_BODY +
+    '<rect x="4" y="4.5" width="15" height="13.5" rx="1" fill="#d1d5db" stroke="#4b5563"/>' +
+    '<rect x="19" y="7" width="1.4" height="3" fill="#4b5563"/><rect x="19" y="12.5" width="1.4" height="3" fill="#4b5563"/>' +
+    '<rect x="6.6" y="8.5" width="1.5" height="5.5" rx=".6" fill="#374151"/>' +
+    '<circle cx="13.2" cy="11.2" r="3.4" fill="#e5e7eb" stroke="#374151"/><circle cx="13.2" cy="11.2" r="1.1" fill="#374151"/></svg>',
+  open: '<svg viewBox="0 0 24 24">' + SAFE_BODY +
+    '<rect x="4" y="4.5" width="12.5" height="13.5" rx="1" fill="#1f2937"/>' +
+    '<line x1="4" y1="11.3" x2="16.5" y2="11.3" stroke="#9ca3af" stroke-width="1.2"/>' +
+    '<path d="M16.5 4 L22.6 2.2 L22.6 21.6 L16.5 19.4 Z" fill="#d1d5db" stroke="#4b5563"/></svg>',
+};
+// a vault's icon: closed safe = a vault file; open safe = the vault unlocked in this tab
+function safe(open) { const el = document.createElement('span'); el.className = 'safe'; el.innerHTML = SAFE_SVG[open ? 'open' : 'closed']; return el; }
+
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
@@ -612,7 +631,7 @@ function renderHome() {
   toolbar([
     {icon: '＋', label: 'New vault', title: 'New vault in this folder', do: newVault},
     {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file to this folder', do: () => $('#file').click()},
-    {icon: '📁', label: 'New folder', title: 'A folder under keepass/; it stays once a vault is saved in it', do: newFolder},
+    {icon: '📁', label: 'New folder', title: 'A folder for sorting vaults; it stays once a vault is saved in it', do: newFolder},
     '|',
     {icon: '🔓', label: 'Open', title: 'Unlock the vault (Enter)', disabled: !v, do: () => unlock(v)},
     {icon: '🕘', label: 'Versions', disabled: !v, do: () => versionsDialog(v)},
@@ -623,31 +642,32 @@ function renderHome() {
   // left: S3 folders
   const node = (f, depth) => h('div', {class: 'node' + (f.name === F.folder ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
       onclick: () => { F.folder = f.name; F.file = null; vaults = f.files; renderHome(); }},
-    h('span', {class: 'caret'}, depth === 0 && F.folders.length > 1 ? '▾' : ''), h('span', {}, '📁'),
-    h('span', {class: 'name', text: f.name || 'keepass'}), h('span', {class: 'count'}, f.files.length || ''));
-  $('#ftree').replaceChildren(h('div', {class: 'pane-title'}, 'Folders · S3'),
+    h('span', {class: 'caret'}, depth === 0 && F.folders.length > 1 ? '▾' : ''), h('span', {}, depth ? '📁' : '🗃'),
+    h('span', {class: 'name', text: f.name || 'Vaults'}), h('span', {class: 'count'}, f.files.length || ''));
+  $('#ftree').replaceChildren(h('div', {class: 'pane-title'}, 'Folders'),
     node(F.folders[0], 0), ...F.folders.slice(1).map(f => node(f, 1)));
   // middle: the vault files in the folder
   const unlockMark = u => !u ? '' : `${u.ok ? '✓' : '✗'} ${when(u.at)}`;
   const rows = files.map(x => h('tr', {class: 'row' + (v && x.name === v.name ? ' sel' : ''),
       onclick: () => { F.file = x; renderHome(); }, ondblclick: () => unlock(x)},
-    h('td', {class: 't'}, '🔐 ', `${x.name}.kdbx`), h('td', {class: 'muted'}, x.owner || '—'),
+    h('td', {class: 't'}, safe(false), ' ', `${x.name}.kdbx`), h('td', {class: 'muted'}, x.owner || '—'),
     h('td', {class: 'muted'}, size(x.size)), h('td', {class: 'muted'}, when(x.modified)),
     h('td', {class: 'muted'}, unlockMark(x.last_unlock))));
   $('#flist').replaceChildren(
-    h('div', {class: 'list-head'}, h('span', {class: 'title', text: s3Path('', F.folder).replace(/\.kdbx$/, '')}),
+    h('div', {class: 'list-head'}, h('span', {class: 'title', text: F.folder ? `📁 ${F.folder}` : 'Vaults'}),
       h('span', {class: 'muted'}, `${files.length} vault ${files.length === 1 ? 'file' : 'files'}`)),
     h('div', {class: 'list-body'}, files.length ? h('table', {},
       h('tr', {}, h('th', {}, 'File'), h('th', {}, 'Owner'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {}, 'Last unlock')), rows)
       : h('div', {class: 'empty'}, 'No vault files in this folder — ＋ New vault or ⤒ Upload in the toolbar.')));
   // right: the selected file
   const el = $('#fdetail');
-  if (!v) { el.replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, '🔐'), 'Select a vault file')); return; }
+  if (!v) { el.replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, safe(false)), 'Select a vault file')); return; }
   const info = (k, val) => h('div', {class: 'field'}, h('div', {class: 'k', text: k}), h('div', {class: 'v'}, h('span', {class: 'val', text: val})));
   const recs = h('div', {}, h('button', {class: 'btn sm', onclick: () => showRecords(v, recs)}, 'Show access records'));
   el.replaceChildren(
-    h('div', {class: 'd-title', text: `🔐 ${v.name}.kdbx`}),
-    h('div', {class: 'd-path', text: `s3://…/${v.path} · encrypted (KDBX 4), decrypted only in your browser`}),
+    h('div', {class: 'd-title'}, safe(false), ` ${v.name}.kdbx`),
+    h('div', {class: 'd-path', text: `${F.folder ? '📁 ' + F.folder : 'Vaults'} · encrypted (KDBX 4), decrypted only in your browser`}),
+    info('S3 location', v.path),
     info('Owner', v.owner || '—'), info('Size', size(v.size)), info('Modified', when(v.modified)),
     info('Last unlock', v.last_unlock ? `${v.last_unlock.ok ? 'succeeded' : 'failed'} · ${v.last_unlock.who} · ${when(v.last_unlock.at)}` : '—'),
     h('div', {class: 'd-actions'}, h('button', {class: 'btn primary', onclick: () => unlock(v)}, '🔓 Open')),
@@ -658,7 +678,7 @@ function renderHome() {
 // vault is created or uploaded into it (keepass/<folder>/<name>.kdbx)
 async function newFolder() {
   const r = await ask('New folder', [{name: 'name', label: 'Folder name', required: true,
-      hint: 'Under keepass/. Letters, digits, @ . + - _ — e.g. shared, frank, team-ops'}],
+      hint: 'Letters, digits, @ . + - _ — e.g. shared, frank, team-ops'}],
     {ok: 'Create', note: 'It stays once you create or upload a vault into it.',
      validate: async v => {
        const name = v.name.trim();
@@ -689,7 +709,7 @@ function checkName(name) {
 async function newVault() {
   let made = null;
   const r = await ask('New vault', [
-    {name: 'name', label: 'Name', required: true, hint: `Stored as ${s3Path('<name>', F.folder)}`},
+    {name: 'name', label: 'Name', required: true, hint: `In ${F.folder ? '📁 ' + F.folder : 'Vaults'}`},
     {name: 'pw', label: 'Master password', type: 'password', required: true, generate: true, meter: true, autocomplete: 'new-password'},
     {name: 'pw2', label: 'Repeat master password', type: 'password', required: true, autocomplete: 'new-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: KEYFILE_HINT, generate: () => $('dialog[open] input').value.trim()}],
@@ -901,22 +921,22 @@ function renderTree(ro) {
         ondblclick: () => { if (!ro && g !== bin && depth > 0) groupDialog(g); }},
       h('span', {class: 'caret', onclick: e => { e.stopPropagation(); open ? S.open.delete(g.uuid.id) : S.open.add(g.uuid.id); renderVault(); }},
         kids.length ? (open ? '▾' : '▸') : ''),
-      h('span', {}, g === bin ? '🗑' : '🗂'),   // a KeePass group, never 📁 (that is an S3 folder)
+      h('span', {}, g === bin ? '🗑' : depth === 0 ? safe(true) : '🗂'),   // icons: 🗃 Vaults, 📁 folder, safe vault (open when unlocked), 🗂 group, 🔑 entry
       h('span', {class: 'name', text: g.name || '(unnamed)', title: g.name || ''}),
       h('span', {class: 'count'}, entryCount(g) || ''));
     return h('li', {}, row, open && kids.length ? h('ul', {}, kids.map(k => node(k, depth + 1))) : null);
   };
   const inBin = Vault.inRecycleBin(S.db, S.group), atRoot = S.group === rootGroup;
-  // the same S3 tree as the file page (📁 keepass › 📁 folder › 🔐 this file), then the groups inside the file
+  // the same tree as the file page (🗃 Vaults › 📁 folder › open safe = this vault), then the groups inside it
   const back = () => $('#brand').click();
   const s3node = (icon, label, depth, sel, title) => h('div', {class: 'node' + (sel ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
       title, onclick: sel ? null : back},
     h('span', {class: 'caret'}, sel ? '' : '▾'), h('span', {}, icon), h('span', {class: 'name', text: label}),
     sel ? h('span', {class: 'count', text: '🔓'}) : null);
-  const s3 = [h('div', {class: 'pane-title'}, 'Folders · S3'),
-    s3node('📁', 'keepass', 0, false, 'All vault files (locks this vault)'),
+  const s3 = [h('div', {class: 'pane-title'}, 'Folders'),
+    s3node('🗃', 'Vaults', 0, false, 'All vault files (locks this vault)'),
     S.folder ? s3node('📁', S.folder, 1, false, 'All vault files (locks this vault)') : null,
-    s3node('🔐', `${S.name}.kdbx`, S.folder ? 2 : 1, true, `s3://…/${s3Path(S.name, S.folder)} · unlocked in this browser`)].filter(Boolean);
+    s3node(safe(true), `${S.name}.kdbx`, S.folder ? 2 : 1, true, `s3://…/${s3Path(S.name, S.folder)} · unlocked in this browser`)].filter(Boolean);
   $('#tree').replaceChildren(...s3,
     h('div', {class: 'pane-title', style: 'margin-top:10px;border-top:1px solid var(--line);padding-top:10px'}, 'Groups · inside this file', h('span', {class: 'spacer'}),
       h('button', {class: 'icon-btn', title: 'New group inside the selected one', disabled: ro || inBin, onclick: () => groupDialog(null)}, '＋'),

@@ -364,3 +364,33 @@ def test_size_limit_is_4_5_mb(fake_s3):
     assert call("PUT", vault("at-limit"), KDBX + b"x" * (lf.MAX_BYTES - len(KDBX)), headers={"if-none-match": "*"})[0] == 201
     status, out, _ = call("PUT", vault("over"), KDBX + b"x" * (lf.MAX_BYTES - len(KDBX) + 1), headers={"if-none-match": "*"})
     assert status == 413 and "4.5 MB" in out["error"]
+
+
+# ---- task 6: the new-vault template — from the deployment (env) or from s3://<bucket>/config/template.json ----
+
+TEMPLATE = {"kdf": {"memory_mib": 128, "parallelism": 2, "unlock_ms": 1500}, "cipher": "aes256",
+            "groups": ["Email", "Finance"], "fields": ["PIN"], "history_max_items": 0, "recycle_bin": False}
+
+
+def test_template_from_the_deployment(fake_s3, monkeypatch):
+    monkeypatch.setattr(lf, "TEMPLATE_SOURCE", "env")
+    monkeypatch.setattr(lf, "TEMPLATE_JSON", json.dumps(TEMPLATE))
+    status, out, _ = call("GET", "/api/template")
+    assert status == 200 and out["template"] == TEMPLATE and out["source"] == "env"
+
+
+def test_template_from_s3(fake_s3, monkeypatch):
+    monkeypatch.setattr(lf, "TEMPLATE_SOURCE", "s3")
+    fake_s3.put_object(Bucket="b", Key="config/template.json", Body=json.dumps(dict(TEMPLATE, groups=["S3"])).encode())
+    status, out, _ = call("GET", "/api/template")
+    assert status == 200 and out["template"]["groups"] == ["S3"] and out["source"] == "s3:config/template.json"
+
+
+def test_a_broken_template_says_so(fake_s3, monkeypatch):
+    monkeypatch.setattr(lf, "TEMPLATE_SOURCE", "env")
+    monkeypatch.setattr(lf, "TEMPLATE_JSON", "{not json")
+    status, out, _ = call("GET", "/api/template")
+    assert status == 500 and "template" in out["error"]
+    monkeypatch.setattr(lf, "TEMPLATE_SOURCE", "s3")                       # s3 chosen, file missing
+    status, out, _ = call("GET", "/api/template")
+    assert status == 500 and "config/template.json" in out["error"]

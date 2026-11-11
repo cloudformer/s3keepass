@@ -25,6 +25,8 @@ Sign-in, AUTH_METHOD:
     POST   /api/audit/unlock                  {"path", "ok"}: the browser reports an unlock result (self-reported:
                                               a file downloaded around the page never shows up here)
     GET    /api/audit?path=<key>&limit=<n>    a vault's access records, newest first
+    GET    /api/template                      what a new vault starts with (TEMPLATE_SOURCE: env = TEMPLATE_JSON from
+                                              the deployment, s3 = s3://<bucket>/config/template.json, edited live)
 
 Access records: every read, save, create, delete and reported unlock is one small JSON object,
 log/<vault key>/<time>-<random>.json (write-only, so concurrent writers never collide; the bucket's lifecycle
@@ -53,6 +55,9 @@ CONSOLE = os.environ.get("CONSOLE", "1") == "1"
 BUCKET = os.environ.get("BUCKET", "")
 PREFIX = "keepass/"                 # fixed layout: s3://<bucket>/keepass/[<folder>/]<name>.kdbx
 MAIN = ""                           # the top level, keepass/ itself; a folder is one level down
+TEMPLATE_SOURCE = os.environ.get("TEMPLATE_SOURCE", "env")   # env | s3
+TEMPLATE_JSON = os.environ.get("TEMPLATE_JSON", "{}")
+TEMPLATE_KEY = "config/template.json"
 LOG = "log/"                        # access records: s3://<bucket>/log/<vault key>/<time>-<random>.json
 MAX_BYTES = 4_718_592               # 4.5 MB: a Function URL takes at most 6 MB per request, base64 included
 
@@ -108,6 +113,10 @@ class PreconditionRequired(Exception):
 
 class TooLarge(Exception):
     pass
+
+
+class Misconfigured(Exception):
+    """The deployment's own settings are wrong (500, with what to fix)."""
 
 
 # ---------------- shared: the same in every project ----------------
@@ -354,6 +363,24 @@ def audit(event):
     return {"path": key, "records": _records(key, limit), "backend": f"S3 list + get {LOG}{key}/"}
 
 
+def template(event):
+    """The new-vault template, as stored: the browser applies it (KDF, groups, fields, history, recycle bin)."""
+    if TEMPLATE_SOURCE == "s3":
+        source = f"s3:{TEMPLATE_KEY}"
+        try:
+            raw = s3.get_object(Bucket=BUCKET, Key=TEMPLATE_KEY)["Body"].read()
+        except ClientError:
+            raise Misconfigured(f"template_source = s3 but s3://{BUCKET}/{TEMPLATE_KEY} cannot be read") from None
+    else:
+        source, raw = "env", TEMPLATE_JSON
+    try:
+        data = json.loads(raw)
+        assert isinstance(data, dict)
+    except (ValueError, AssertionError):
+        raise Misconfigured(f"the new-vault template ({source}) is not a JSON object") from None
+    return {"template": data, "source": source}
+
+
 def put_vault(event, folder, name):
     """Never an unconditional overwrite: If-Match = the ETag the caller read, If-None-Match: * = create."""
     key = _key(folder, name)
@@ -432,6 +459,7 @@ ROUTES = [
     ("GET",    re.compile(r"/api/tree"), tree),
     ("POST",   re.compile(r"/api/audit/unlock"), report_unlock),
     ("GET",    re.compile(r"/api/audit"), audit),
+    ("GET",    re.compile(r"/api/template"), template),
     ("GET",    re.compile(FILE + "/versions"), list_versions),
     ("GET",    re.compile(FILE), get_vault),
     ("PUT",    re.compile(FILE), put_vault),

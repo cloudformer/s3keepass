@@ -129,6 +129,12 @@ resource "aws_iam_role_policy" "lambda" {
         Resource = "${aws_s3_bucket.vaults.arn}/log/*"
       },
       {
+        # the new-vault template, when template_source = s3: read only
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.vaults.arn}/config/template.json"
+      },
+      {
         Effect    = "Allow"
         Action    = ["s3:ListBucket", "s3:ListBucketVersions"]
         Resource  = aws_s3_bucket.vaults.arn
@@ -159,10 +165,12 @@ resource "aws_lambda_function" "server" {
 
   environment {
     variables = {
-      USER_NAME = var.console_auth_username
-      PASSWORD  = var.console_auth_password
-      CONSOLE   = var.console ? "1" : "0"
-      BUCKET    = aws_s3_bucket.vaults.bucket
+      USER_NAME       = var.console_auth_username
+      PASSWORD        = var.console_auth_password
+      CONSOLE         = var.console ? "1" : "0"
+      BUCKET          = aws_s3_bucket.vaults.bucket
+      TEMPLATE_SOURCE = var.template_source
+      TEMPLATE_JSON   = jsonencode(var.template)
     }
   }
 }

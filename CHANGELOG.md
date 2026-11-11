@@ -38,6 +38,12 @@
 - Move entries between groups: tick them (or select one), Move to…, pick the group. KeePassXC reads the moved
   entries in their new group, unchanged (compatibility test).
 
+- `GET /api/template`: what a new vault starts with (Argon2id memory, parallelism, minimum unlock time; groups;
+  extra fields; entry history kept; recycle bin). `template_source = env` takes the `template` variable,
+  `s3` reads `config/template.json` from the bucket (edit it, no redeploy). Applied when a vault is created (task 8).
+- Both screens keep their actions on the list head (files: New vault, Upload, New folder, Open, Versions, Delete;
+  entries: New entry, New group, Edit, Move to…, Delete); the top bar has only what concerns the whole page.
+
 ## 0.1.0 — 2026-10-29
 
 First release: the web UI replaces a local KeePass client.

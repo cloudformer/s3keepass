@@ -555,7 +555,7 @@ addEventListener('focus', () => { if (clearOnFocus) clearClipboard(); });
 
 // ================ the app ================
 // S = the open vault: db is the decrypted database (only in this tab's memory), etag the S3 version it came from.
-let S = null, vaults = [], me = null;   // me: the signed-in identity = my personal folder's name
+let S = null, vaults = [];
 let saving = null, saveAgain = false;
 
 function toolbar(items) {
@@ -569,7 +569,6 @@ function crumbs(...parts) {
 
 // ---------------- home: the vault folder, s3://<bucket>/keepass/*.kdbx ----------------
 async function showHome() {
-  if (!me) call('GET', '/api/me').then(r => { me = r.identity; }).catch(() => {});
   $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true; $('#lock').hidden = true;
   $('#signout').hidden = false;
   renderSaveState();
@@ -714,7 +713,7 @@ async function unlock(v) {
 }
 
 function openDb({name, db, etag}) {
-  S = {name, folder: me || 'my folder', db, etag, group: db.getDefaultGroup(), entry: null, search: '', open: new Set(), conflict: null, saved: null, error: null};
+  S = {name, folder: 'keepass', db, etag, group: db.getDefaultGroup(), entry: null, search: '', open: new Set(), conflict: null, saved: null, error: null};
   S.open.add(S.group.uuid.id);
   $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false; $('#lock').hidden = false;
   $('#signout').hidden = true;   // inside a vault the way out is Lock; Sign out is on the vault-file list only
@@ -837,7 +836,7 @@ function renderTree(ro) {
     return h('li', {}, row, open && kids.length ? h('ul', {}, kids.map(k => node(k, depth + 1))) : null);
   };
   const inBin = Vault.inRecycleBin(S.db, S.group), atRoot = S.group === rootGroup;
-  const file = h('div', {class: 'file-card', title: `s3://…/vaults/${S.folder}/${S.name}.kdbx`},
+  const file = h('div', {class: 'file-card', title: `s3://…/${S.folder}/${S.name}.kdbx`},
     h('div', {class: 'kind'}, 'S3 file'),
     h('div', {class: 'path'}, h('span', {class: 'folder', text: `📁 ${S.folder} / `}), h('b', {text: `🔐 ${S.name}.kdbx`})),
     h('div', {class: 'meta'}, `🔓 unlocked in this browser · ETag ${(S.etag || '').replace(/"/g, '').slice(0, 8)}`),

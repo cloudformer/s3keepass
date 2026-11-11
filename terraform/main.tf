@@ -2,11 +2,11 @@ data "aws_caller_identity" "me" {}
 
 locals {
   role   = "${var.project_name}-lambda-role"
-  prefix = "vaults/" # fixed layout: s3://<bucket>/vaults/<folder>/<vault>.kdbx (folder = shared or a person)
+  prefix = "keepass/" # fixed layout: s3://<bucket>/keepass/<vault>.kdbx
   bucket = var.bucket != "" ? var.bucket : "${var.project_name}-${var.env}-${data.aws_caller_identity.me.account_id}"
 }
 
-# ---------------- S3: every vault is one .kdbx under vaults/<folder>/ in this private bucket ----------------
+# ---------------- S3: every vault is one .kdbx under keepass/ in this private bucket ----------------
 resource "aws_s3_bucket" "vaults" {
   bucket        = local.bucket
   force_destroy = var.force_destroy # false: destroy stops at a non-empty bucket, so no vault is lost by accident
@@ -79,7 +79,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "vaults" {
   }
 }
 
-# ---------------- IAM: one role, least privilege — only vaults/<folder>/*.kdbx ----------------
+# ---------------- IAM: one role, least privilege — only keepass/*.kdbx ----------------
 resource "aws_iam_role" "lambda" {
   name = local.role
   assume_role_policy = jsonencode({
@@ -106,7 +106,7 @@ resource "aws_iam_role_policy" "lambda" {
       {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"]
-        Resource = "${aws_s3_bucket.vaults.arn}/${local.prefix}*/*.kdbx"
+        Resource = "${aws_s3_bucket.vaults.arn}/${local.prefix}*.kdbx"
       },
       {
         Effect    = "Allow"

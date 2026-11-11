@@ -108,7 +108,7 @@ def test_create_list_and_open_vaults(fake_s3):
     assert status == 200 and data == KDBX and headers["etag"] == etag
     assert headers["content-type"] == "application/octet-stream" and "S3 get" in headers["x-backend"]
     assert float(headers["x-server-ms"]) >= 0
-    assert set(fake_s3.versions) == {"vaults/admin/库1.kdbx", "vaults/admin/库2.kdbx"}   # task 2: own folder
+    assert set(fake_s3.versions) == {"keepass/库1.kdbx", "keepass/库2.kdbx"}
 
 
 def test_create_refuses_an_existing_name(fake_s3):
@@ -151,7 +151,7 @@ def test_saves_are_sse_kms_ciphertext(fake_s3):
     assert status == 400 and "not a KeePass file" in out["error"]
     assert call("PUT", vault("empty"), b"", headers={"if-none-match": "*"})[0] == 400
     assert call("PUT", vault("big"), KDBX + b"x" * lf.MAX_BYTES, headers={"if-none-match": "*"})[0] == 413
-    assert set(fake_s3.versions) == {"vaults/admin/库1.kdbx"}   # task 2: own folder
+    assert set(fake_s3.versions) == {"keepass/库1.kdbx"}
 
 
 @pytest.mark.parametrize("name,status", [
@@ -193,8 +193,8 @@ def test_delete_needs_the_current_etag_and_keeps_versions(fake_s3):
 
 def test_listing_ignores_other_keys(fake_s3):
     create("库1")
-    fake_s3._add("vaults/admin/sub/x.kdbx", body=KDBX, etag='"a"', deleted=False)   # task 2: own folder
-    fake_s3._add("vaults/admin/notes.txt", body=b"x", etag='"b"', deleted=False)
+    fake_s3._add("keepass/sub/x.kdbx", body=KDBX, etag='"a"', deleted=False)
+    fake_s3._add("keepass/notes.txt", body=b"x", etag='"b"', deleted=False)
     fake_s3._add("other/y.kdbx", body=KDBX, etag='"c"', deleted=False)
     assert [v["name"] for v in call("GET", "/api/vaults")[1]["vaults"]] == ["库1"]
 
@@ -204,20 +204,20 @@ def test_unknown_routes(fake_s3):
     assert call("POST", vault("库1"), KDBX)[0] == 404
 
 
-# ---- task 2: folders — vaults/<identity>/ (personal) and vaults/shared/ ----
+# ---- task 2: folders — keepass/ (main), keepass/shared/, keepass/<identity>/ ----
 
 def file(folder, name):
     return "/api/files/" + urllib.parse.quote(folder, safe="") + "/" + urllib.parse.quote(name, safe="")
 
 
 def test_files_in_any_folder(fake_s3):
-    """A vault lives in a folder: shared, or someone's personal folder. /api/vaults/<name> = my own folder."""
+    """A vault lives in a folder: main (keepass/), shared, or someone's. /api/vaults/<name> = the main folder."""
     assert call("PUT", file("shared", "team"), KDBX, headers={"if-none-match": "*"})[0] == 201
     assert call("PUT", file("bob@example.com", "bob1"), KDBX + b"b", headers={"if-none-match": "*"})[0] == 201
     mine = create("mine")
-    assert set(fake_s3.versions) == {"vaults/shared/team.kdbx", "vaults/bob@example.com/bob1.kdbx", "vaults/admin/mine.kdbx"}
-    status, data, headers = call("GET", file("admin", "mine"))
-    assert status == 200 and data == KDBX and headers["etag"] == mine        # the same file both ways
+    assert set(fake_s3.versions) == {"keepass/shared/team.kdbx", "keepass/bob@example.com/bob1.kdbx", "keepass/mine.kdbx"}
+    status, data, headers = call("GET", vault("mine"))
+    assert status == 200 and data == KDBX and headers["etag"] == mine
     assert call("GET", file("bob@example.com", "bob1"))[1] == KDBX + b"b"    # no per-person isolation yet
     etag = call("GET", file("shared", "team"))[2]["etag"]
     assert call("PUT", file("shared", "team"), KDBX + b"2", headers={"if-match": etag})[0] == 200
@@ -230,7 +230,7 @@ def test_files_in_any_folder(fake_s3):
     ("x" * 129, "x", 400),
 ])
 def test_folder_and_name_rules(fake_s3, folder, name, status):
-    """Only vaults/<folder>/<name>.kdbx: no '..', no hidden names, nothing outside vaults/."""
+    """Only keepass/[<folder>/]<name>.kdbx: no '..', no hidden names, nothing outside keepass/."""
     assert call("PUT", file(folder, name), KDBX, headers={"if-none-match": "*"})[0] == status
 
 
@@ -242,18 +242,19 @@ def test_paths_cannot_escape_or_nest(fake_s3):
 
 
 def test_tree_lists_folders_and_files(fake_s3):
-    """GET /api/tree: every folder under vaults/, shared and mine always present, each file with its metadata."""
+    """GET /api/tree: main and shared always present, then each person's folder, each file with its metadata."""
     create("mine")
     call("PUT", file("bob@example.com", "b"), KDBX, headers={"if-none-match": "*"})
-    fake_s3._add("vaults/shared/readme.txt", body=b"x", etag='"t"', deleted=False)       # not a vault: ignored
-    fake_s3._add("vaults/x/deep/y.kdbx", body=KDBX, etag='"d"', deleted=False)           # nested: ignored
-    fake_s3._add("keepass/old.kdbx", body=KDBX, etag='"o"', deleted=False)               # outside vaults/: ignored
+    fake_s3._add("keepass/shared/readme.txt", body=b"x", etag='"t"', deleted=False)      # not a vault: ignored
+    fake_s3._add("keepass/x/deep/y.kdbx", body=KDBX, etag='"d"', deleted=False)          # deeper: ignored
+    fake_s3._add("other/old.kdbx", body=KDBX, etag='"o"', deleted=False)                 # outside keepass/: ignored
     status, out, _ = call("GET", "/api/tree")
     assert status == 200 and out["me"] == "admin"
-    assert [f["name"] for f in out["folders"]] == ["admin", "shared", "bob@example.com"]  # mine, shared, others
-    assert [f["kind"] for f in out["folders"]] == ["personal", "shared", "personal"]
+    assert [f["name"] for f in out["folders"]] == ["", "shared", "bob@example.com"]       # main, shared, others
+    assert [f["kind"] for f in out["folders"]] == ["main", "shared", "personal"]
+    assert [f["path"] for f in out["folders"]] == ["keepass/", "keepass/shared/", "keepass/bob@example.com/"]
     mine = out["folders"][0]["files"][0]
-    assert mine["name"] == "mine" and mine["path"] == "vaults/admin/mine.kdbx" and mine["size"] == len(KDBX)
+    assert mine["name"] == "mine" and mine["path"] == "keepass/mine.kdbx" and mine["size"] == len(KDBX)
     assert mine["modified"] and mine["etag"]
     assert out["folders"][1]["files"] == []
     assert [f["name"] for f in out["folders"][2]["files"]] == ["b"]

@@ -14,15 +14,16 @@ Sign-in, AUTH_METHOD:
     GET    /vendor/<file>.js                  the vendored crypto libraries, public
     GET    /api/ping                          {"ok": true}
     GET    /api/me                            {"identity", "auth_method"}: who is signed in
-    GET    /api/tree                          folders under vaults/ (mine, shared, others) and their vault files
-    GET    /api/files/<folder>/<name>[?version=<id>]  the encrypted file (ETag header); an older version with ?version
-    PUT    /api/files/<folder>/<name>         save: If-Match <etag> (update) or If-None-Match * (create) required
-    DELETE /api/files/<folder>/<name>         If-Match <etag> required; the bucket keeps old versions
-    GET    /api/files/<folder>/<name>/versions  the file's S3 versions, newest first
-    /api/vaults[/<name>[/versions]]           the same, in my own folder (vaults/<identity>/)
+    GET    /api/tree                          the folders under keepass/ (main, shared, others) and their vault files
+    GET    /api/vaults                        the main folder's vaults (keepass/<name>.kdbx)
+    GET    /api/vaults/<name>[?version=<id>]  the encrypted file (ETag header); an older version with ?version
+    PUT    /api/vaults/<name>                 save: If-Match <etag> (update) or If-None-Match * (create) required
+    DELETE /api/vaults/<name>                 If-Match <etag> required; the bucket keeps old versions
+    GET    /api/vaults/<name>/versions        the file's S3 versions, newest first
+    /api/files/<folder>/<name>[/versions]     the same, in a sub-folder (keepass/<folder>/<name>.kdbx)
 
-Storage: vaults/<folder>/<name>.kdbx — <folder> is "shared" or a person's identity (their personal folder). Every
-signed-in person can open every folder for now (no per-person isolation).
+Storage: keepass/<name>.kdbx is the main folder (every vault so far); keepass/shared/ is the shared folder and
+keepass/<identity>/ a person's own. Every signed-in person can open every folder for now (no per-person isolation).
 """
 import base64
 import hashlib
@@ -41,8 +42,8 @@ USER = os.environ.get("USER_NAME", "")
 PASSWORD = os.environ.get("PASSWORD", "")
 CONSOLE = os.environ.get("CONSOLE", "1") == "1"
 BUCKET = os.environ.get("BUCKET", "")
-PREFIX = "vaults/"                  # fixed layout: s3://<bucket>/vaults/<folder>/<name>.kdbx
-SHARED = "shared"                   # the shared folder; every other folder is a person's (named by identity)
+PREFIX = "keepass/"                 # fixed layout: s3://<bucket>/keepass/[<folder>/]<name>.kdbx
+MAIN, SHARED = "", "shared"         # the main folder is keepass/ itself; shared and a person's are one level down
 MAX_BYTES = 5 * 1024 * 1024         # a Function URL takes at most 6 MB per request, base64 included
 
 HERE = os.path.dirname(__file__)
@@ -173,26 +174,25 @@ def lambda_handler(event, context):
     return _json(status, data)
 
 
-# ---------------- the project's API: vaults/<folder>/<name>.kdbx in one bucket ----------------
+# ---------------- the project's API: keepass/[<folder>/]<name>.kdbx in one bucket ----------------
 
 def _key(folder, name):
-    """The S3 key of a vault; the only place a path is built, so nothing outside vaults/<folder>/<name>.kdbx."""
-    if not FOLDER.fullmatch(folder) or ".." in folder:
+    """The S3 key of a vault; the only place a path is built, so nothing outside keepass/[<folder>/]<name>.kdbx."""
+    if folder != MAIN and (not FOLDER.fullmatch(folder) or ".." in folder):
         raise BadRequest("folder: 'shared' or an identity (letters, digits, @ . + - _), at most 128, not starting "
                          "with '.' — got " + repr(folder))
     if not NAME.fullmatch(name):
         raise BadRequest("vault name: letters, digits, space, _ - . ( ), at most 64, not starting with '.' or "
                          "a space — got " + repr(name))
-    return f"{PREFIX}{folder}/{name}.kdbx"
+    return f"{PREFIX}{folder}/{name}.kdbx" if folder else f"{PREFIX}{name}.kdbx"
 
 
 def _split(key):
-    """vaults/<folder>/<name>.kdbx -> (folder, name), or None for anything else (nested, not a vault)."""
+    """keepass/[<folder>/]<name>.kdbx -> (folder, name), or None for anything else (deeper, not a vault)."""
     parts = key[len(PREFIX):].split("/")
-    if len(parts) == 2 and parts[1].endswith(".kdbx"):
-        folder, name = parts[0], parts[1][:-5]
-        if FOLDER.fullmatch(folder) and NAME.fullmatch(name):
-            return folder, name
+    folder, file = ("", parts[0]) if len(parts) == 1 else tuple(parts) if len(parts) == 2 else ("", "")
+    if file.endswith(".kdbx") and NAME.fullmatch(file[:-5]) and (folder == MAIN or FOLDER.fullmatch(folder)):
+        return folder, file[:-5]
     return None
 
 
@@ -241,20 +241,21 @@ def _files(prefix):
 
 
 def tree(event):
-    """Folders, mine first, then shared, then everyone else's; mine and shared are listed even when empty."""
-    me = event["identity"]
-    by_folder = {me: [], SHARED: []}
+    """Folders: main (keepass/ itself) first, then shared, then each person's; main and shared even when empty."""
+    by_folder = {MAIN: [], SHARED: []}
     for f in _files(PREFIX):
         by_folder.setdefault(f["folder"], []).append(f)
-    order = [me, SHARED] + sorted(k for k in by_folder if k not in (me, SHARED))
-    folders = [{"name": k, "kind": "shared" if k == SHARED else "personal", "mine": k == me, "files": by_folder[k]}
-               for k in order]
-    return {"me": me, "folders": folders, "backend": f"S3 list {PREFIX} · {sum(len(f['files']) for f in folders)} files"}
+    order = [MAIN, SHARED] + sorted(k for k in by_folder if k not in (MAIN, SHARED))
+    kind = {MAIN: "main", SHARED: "shared"}
+    folders = [{"name": k, "path": PREFIX + (k + "/" if k else ""), "kind": kind.get(k, "personal"),
+                "files": by_folder[k]} for k in order]
+    return {"me": event["identity"], "folders": folders,
+            "backend": f"S3 list {PREFIX} · {sum(len(f['files']) for f in folders)} files"}
 
 
 def list_vaults(event):
-    vaults = [{k: f[k] for k in ("name", "size", "modified", "etag")} for f in _files(f"{PREFIX}{event['identity']}/")]
-    return {"vaults": vaults, "backend": f"S3 list {PREFIX}{event['identity']}/ · {len(vaults)} vaults"}
+    vaults = [{k: f[k] for k in ("name", "size", "modified", "etag")} for f in _files(PREFIX) if f["folder"] == MAIN]
+    return {"vaults": vaults, "backend": f"S3 list {PREFIX} · {len(vaults)} vaults"}
 
 
 def get_vault(event, folder, name):
@@ -333,12 +334,12 @@ def list_versions(event, folder, name):
     return {"name": name, "versions": versions, "backend": f"S3 list versions {key} · {len(versions)}"}
 
 
-def _mine(handler):
-    """/api/vaults/<name>: the same handler, in the caller's own folder."""
-    return lambda event, name: handler(event, event["identity"], name)
+def _main(handler):
+    """/api/vaults/<name>: the same handler, in the main folder (keepass/<name>.kdbx)."""
+    return lambda event, name: handler(event, MAIN, name)
 
 
-FILE, MINE = r"/api/files/(?P<folder>[^/]+)/(?P<name>[^/]+)", r"/api/vaults/(?P<name>[^/]+)"
+FILE, MAIN_FILE = r"/api/files/(?P<folder>[^/]+)/(?P<name>[^/]+)", r"/api/vaults/(?P<name>[^/]+)"
 ROUTES = [
     ("GET",    re.compile(r"/api/ping"), ping),
     ("GET",    re.compile(r"/api/me"), me),
@@ -348,8 +349,8 @@ ROUTES = [
     ("PUT",    re.compile(FILE), put_vault),
     ("DELETE", re.compile(FILE), delete_vault),
     ("GET",    re.compile(r"/api/vaults"), list_vaults),
-    ("GET",    re.compile(MINE + "/versions"), _mine(list_versions)),
-    ("GET",    re.compile(MINE), _mine(get_vault)),
-    ("PUT",    re.compile(MINE), _mine(put_vault)),
-    ("DELETE", re.compile(MINE), _mine(delete_vault)),
+    ("GET",    re.compile(MAIN_FILE + "/versions"), _main(list_versions)),
+    ("GET",    re.compile(MAIN_FILE), _main(get_vault)),
+    ("PUT",    re.compile(MAIN_FILE), _main(put_vault)),
+    ("DELETE", re.compile(MAIN_FILE), _main(delete_vault)),
 ]

@@ -28,7 +28,7 @@
 一个 Lambda 挂在 Function URL 后面，提供页面（`index.html`，无构建、无外部请求）和一个只管一个 S3 前缀的小 API：
 列出 `keepass/*.kdbx`、取文件、**只有在仍是你打开的那个版本时才保存**（`PUT` 带 `If-Match: <ETag>`；新库用
 `If-None-Match: *`）、列出和取旧版本、删除。浏览器用 **kdbxweb**（KeeWeb 的 KDBX 库）和 **argon2-browser**
-（Argon2 参考实现编成 WASM）加解密，两者都内置并锁定版本，见 [src/server/vendor/](src/server/vendor/README.md)——
+（Argon2 参考实现编成 WASM）加解密，两者都内置并锁定版本，见 [client/s3keepass/server/vendor/](client/s3keepass/server/vendor/README.md)——
 没有手写的加密代码。新库是 KDBX 4、AES-256、Argon2id 64 MiB × 8。主密钥和 KeePass 一样是主密码加可选的**密钥文件**：
 KeePassXC 的 `.keyx` / `.key`、网页生成的，或任意文件——每次解锁在浏览器里选，从不上传。
 
@@ -94,8 +94,9 @@ python3 -m pytest tests -q --docker down   # 同上，不管结果一律关掉
 ## 目录
 
 ```
-src/server/       服务本体：lambda_function.py（库 API）、index.html（网页）、vendor/（kdbxweb、argon2）
-client/           pip 包 s3keepass（0.1.0 只有版本号；命令行在 0.2.0）
+client/           pip 包 s3keepass（PyPI）；命令行在 0.2.0
+  s3keepass/server/   服务本体，从 PyPI 部署：lambda_function.py（库 API）、index.html（网页）、
+                      vendor/（kdbxweb、argon2）、base_template.json（新建库的默认设置）
 terraform/        部署：S3 桶、Lambda + Function URL、IAM
 tests/            回归测试（假 S3）；tests/compat/ 对比 KeePassXC、REPORT.md、TASKS.md
 ```

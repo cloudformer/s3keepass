@@ -89,7 +89,7 @@ def test_csp_runs_only_this_pages_scripts():
 
 
 def test_vendored_libraries_match_their_pins():
-    """src/server/vendor/README.md pins every vendored file by SHA-256."""
+    """client/s3keepass/server/vendor/README.md pins every vendored file by SHA-256."""
     vendor = os.path.join(os.path.dirname(lf.__file__), "vendor")
     with open(os.path.join(vendor, "README.md"), encoding="utf-8") as f:
         pins = dict(re.findall(r"^\| (\S+\.js) \|.*?\| `([0-9a-f]{64})` \|", f.read(), re.M))
@@ -366,24 +366,33 @@ def test_size_limit_is_4_5_mb(fake_s3):
     assert status == 413 and "4.5 MB" in out["error"]
 
 
-# ---- task 6: the new-vault template — terraform/template.json, uploaded to s3://<bucket>/config/template.json ----
+# ---- the new-vault template: base_template.json in the package, the deployment's custom template on top ----
 
-def test_template_is_the_one_in_the_repository(fake_s3):
-    """The repository's template (what terraform apply uploads) is what the API serves."""
-    with open(os.path.join(os.path.dirname(__file__), "..", "terraform", "template.json"), encoding="utf-8") as f:
-        repo = json.load(f)
-    assert repo["kdf"] == {"memory_mib": 128, "parallelism": 2, "unlock_ms": 1500} and repo["history_max_items"] == 0
-    fake_s3.put_object(Bucket="b", Key="config/template.json", Body=json.dumps(repo).encode())
-    status, out, _ = call("GET", "/api/template")
-    assert status == 200 and out["template"] == repo and out["source"] == "s3:config/template.json"
+BASE = {"kdf": {"memory_mib": 128, "parallelism": 2, "unlock_ms": 2000}, "cipher": "aes256", "groups": [], "fields": [],
+        "history_max_items": 0, "recycle_bin": False}
 
 
-def test_a_missing_or_broken_template_says_what_to_do(fake_s3):
+def test_without_a_custom_template_the_base_one_is_served(fake_s3):
+    """No config/custom_template.json: base_template.json, the safe defaults shipped in the package."""
+    with open(os.path.join(os.path.dirname(lf.__file__), "base_template.json"), encoding="utf-8") as f:
+        assert json.load(f) == BASE
     status, out, _ = call("GET", "/api/template")
-    assert status == 500 and "terraform apply" in out["error"]
-    fake_s3.put_object(Bucket="b", Key="config/template.json", Body=b"{not json")
+    assert status == 200 and out["template"] == BASE and out["source"] == "base"
+
+
+def test_a_custom_template_overrides_field_by_field(fake_s3):
+    """Only the fields the deployment sets change; kdf is merged one level down (unlock_ms alone keeps the memory)."""
+    fake_s3.put_object(Bucket="b", Key="config/custom_template.json",
+                       Body=json.dumps({"kdf": {"unlock_ms": 3000}, "recycle_bin": True}).encode())
     status, out, _ = call("GET", "/api/template")
-    assert status == 500 and "terraform/template.json" in out["error"]
+    assert status == 200 and out["source"] == "base+s3:config/custom_template.json"
+    assert out["template"] == dict(BASE, kdf={"memory_mib": 128, "parallelism": 2, "unlock_ms": 3000}, recycle_bin=True)
+
+
+def test_a_broken_custom_template_says_what_to_do(fake_s3):
+    fake_s3.put_object(Bucket="b", Key="config/custom_template.json", Body=b"{not json")
+    status, out, _ = call("GET", "/api/template")
+    assert status == 500 and "custom_template" in out["error"]
 
 
 # ---- move a vault file to another folder (S3 has no rename: write the copy, then delete the original) ----

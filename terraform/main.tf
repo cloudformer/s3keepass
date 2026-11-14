@@ -155,7 +155,7 @@ resource "aws_iam_role_policy" "lambda" {
 # ---------------- the service: one Lambda + Function URL (web UI + API) ----------------
 data "archive_file" "server" {
   type        = "zip"
-  source_dir  = "${path.module}/../src/server"
+  source_dir  = "${path.module}/../client/s3keepass/server"
   excludes    = ["**/__pycache__/**", "**/.DS_Store"]
   output_path = "${path.module}/.build/server.zip"
 }

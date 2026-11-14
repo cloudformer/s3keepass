@@ -1,6 +1,21 @@
 # Changelog
 
-## Unreleased
+## 0.1.1
+
+**The Lambda ships in the pip package.** `src/server/` moved to `client/s3keepass/server/` (handler
+`s3keepass.server.lambda_function.lambda_handler`), so the Terraform module `cloudformer/infra/aws//modules/s3keepass`
+deploys a release from PyPI.
+
+- **New-vault template in two layers.** `base_template.json` (in the package: Argon2id 128 MiB × 2 lanes tuned to
+  ≥ 2 s, AES-256, no entry history, no recycle bin) is what every deployment starts from; a deployment's
+  `custom_template` (the module variable, stored as `config/custom_template.json`) overrides it field by field,
+  `kdf` one level down. `GET /api/template` serves the merged result and says which (`base` or
+  `base+s3:config/custom_template.json`). `config/template.json` is no longer read.
+- UI: the folder tree lists the vault files in each folder (folders fold); inside an unlocked vault the bar turns
+  amber with "🔓 Inside <file>", and the folders on the left only show where the file is (Lock to leave) — the
+  open file is marked "Opened" instead of a second Close button.
+- UI default KDF (no template) = the base template: 128 MiB, ≥ 2 s.
+
 
 - Sign-in method is a setting, `AUTH_METHOD`: `web` (HTTP Basic, as before) or `cloudflare` (reserved: refused
   with 503 until it is built, never left open). `GET /api/me` returns who is signed in; the identity (the Basic

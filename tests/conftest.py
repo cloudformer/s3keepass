@@ -1,4 +1,4 @@
-"""Test setup: src/server and client/ on the import path, an in-memory fake S3, the compatibility-report hooks.
+"""Test setup: client/s3keepass/server and client/ on the import path, an in-memory fake S3, the compatibility-report hooks.
 
 The fake S3 implements what lambda_function uses on a versioned bucket: ETag, conditional PUT (If-Match /
 If-None-Match), HEAD 404, delete markers, object versions and both list paginators. The report hooks must
@@ -14,7 +14,7 @@ import sys
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "src", "server"))
+sys.path.insert(0, os.path.join(ROOT, "client", "s3keepass", "server"))   # import lambda_function, as the tests always have
 sys.path.insert(0, os.path.join(ROOT, "client"))
 
 # the pip / import name, read from client/pyproject.toml so nothing else hard-codes it

@@ -28,8 +28,9 @@ Sign-in, AUTH_METHOD:
     POST   /api/audit/unlock                  {"path", "ok"}: the browser reports an unlock result (self-reported:
                                               a file downloaded around the page never shows up here)
     GET    /api/audit?path=<key>&limit=<n>    a vault's access records, newest first
-    GET    /api/template                      what a new vault starts with: s3://<bucket>/config/template.json
-                                              (terraform/template.json in the repository, uploaded by terraform apply)
+    GET    /api/template                      what a new vault starts with: base_template.json (in this package),
+                                              overridden field by field by s3://<bucket>/config/custom_template.json
+                                              when the deployment sets one (the module's custom_template)
 
 Access records: every read, save, create, delete and reported unlock is one small JSON object,
 log/<vault key>/<time>-<random>.json (write-only, so concurrent writers never collide; the bucket's lifecycle
@@ -58,13 +59,15 @@ CONSOLE = os.environ.get("CONSOLE", "1") == "1"
 BUCKET = os.environ.get("BUCKET", "")
 PREFIX = "keepass/"                 # fixed layout: s3://<bucket>/keepass/[<folder>/]<name>.kdbx
 MAIN = ""                           # the top level, keepass/ itself; a folder is one level down
-TEMPLATE_KEY = "config/template.json"      # the new-vault template (terraform/template.json, uploaded by Terraform)
+CUSTOM_TEMPLATE_KEY = "config/custom_template.json"  # the deployment's overrides of base_template.json (optional)
 LOG = "log/"                        # access records: s3://<bucket>/log/<vault key>/<time>-<random>.json
 MAX_BYTES = 4_718_592               # 4.5 MB: a Function URL takes at most 6 MB per request, base64 included
 
 HERE = os.path.dirname(__file__)
 with open(os.path.join(HERE, "index.html"), encoding="utf-8") as f:
     INDEX_HTML = f.read()
+with open(os.path.join(HERE, "base_template.json"), encoding="utf-8") as f:
+    BASE_TEMPLATE = json.load(f)   # the safe defaults every deployment starts from
 VENDOR = {}
 for _name in sorted(os.listdir(os.path.join(HERE, "vendor"))):
     if _name.endswith(".js"):
@@ -364,19 +367,31 @@ def audit(event):
     return {"path": key, "records": _records(key, limit), "backend": f"S3 list + get {LOG}{key}/"}
 
 
+def merge_template(base, custom):
+    """custom over base, field by field; an object field (kdf) is merged one level down, so kdf.unlock_ms alone
+    keeps the base memory_mib and parallelism."""
+    out = dict(base)
+    for k, v in custom.items():
+        out[k] = dict(base[k], **v) if isinstance(v, dict) and isinstance(base.get(k), dict) else v
+    return out
+
+
 def template(event):
-    """The new-vault template, as stored: the browser applies it (KDF, groups, fields, history, recycle bin)."""
+    """The new-vault template the browser applies (KDF, groups, fields, history, recycle bin): base_template.json,
+    with the deployment's custom template (s3://<bucket>/config/custom_template.json) on top when there is one."""
     try:
-        raw = s3.get_object(Bucket=BUCKET, Key=TEMPLATE_KEY)["Body"].read()
-    except ClientError:
-        raise Misconfigured(f"s3://{BUCKET}/{TEMPLATE_KEY} cannot be read: run terraform apply "
-                            "(it uploads terraform/template.json)") from None
+        raw = s3.get_object(Bucket=BUCKET, Key=CUSTOM_TEMPLATE_KEY)["Body"].read()
+    except ClientError as e:
+        if e.response["Error"]["Code"] in ("NoSuchKey", "404"):
+            return {"template": BASE_TEMPLATE, "source": "base"}
+        raise Misconfigured(f"s3://{BUCKET}/{CUSTOM_TEMPLATE_KEY} cannot be read: "
+                            f"{e.response['Error']['Code']}") from None
     try:
-        data = json.loads(raw)
-        assert isinstance(data, dict)
+        custom = json.loads(raw)
+        assert isinstance(custom, dict)
     except (ValueError, AssertionError):
-        raise Misconfigured(f"{TEMPLATE_KEY} is not a JSON object: fix terraform/template.json and apply") from None
-    return {"template": data, "source": f"s3:{TEMPLATE_KEY}"}
+        raise Misconfigured(f"{CUSTOM_TEMPLATE_KEY} is not a JSON object: fix custom_template and apply") from None
+    return {"template": merge_template(BASE_TEMPLATE, custom), "source": f"base+s3:{CUSTOM_TEMPLATE_KEY}"}
 
 
 def put_vault(event, folder, name):

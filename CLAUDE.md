@@ -16,7 +16,7 @@ file is kept — he opens the URL instead of KeePassXC, and the vaults live in S
   versions per vault, max 100), SSE-KMS with the AWS-managed `aws/s3` key (a customer key may come later).
 - **The browser decrypts.** The Lambda only lists / reads / writes / deletes encrypted bytes; the master password
   and plaintext never leave the browser (as KeeWeb). KDBX 4 via vendored kdbxweb + argon2-browser in
-  `src/server/vendor/` (pinned by SHA-256 in its README, checked by a test) — never hand-written crypto. All
+  `client/s3keepass/server/vendor/` (pinned by SHA-256 in its README, checked by a test) — never hand-written crypto. All
   crypto calls go through the `vault-core` `<script>` block of `index.html`; nothing else touches kdbxweb.
 - **Saves are conditional**: `PUT If-Match <ETag read>` (create: `If-None-Match: *`); unconditional PUT is 428.
   A refused save (412) never overwrites: the UI offers the local copy as a download and a reopen.
@@ -157,7 +157,8 @@ file is kept — he opens the URL instead of KeePassXC, and the vaults live in S
 ## Layout (do not move things)
 
 ```
-src/server/       lambda_function.py (shared helpers on top, routes below), index.html (console)
+client/s3keepass/server/   lambda_function.py (shared helpers on top, routes below), index.html (console),
+                           base_template.json (new-vault defaults; a deployment's custom_template overrides fields)
 client/<project>/ the pip package; pyproject.toml; README.md is the PyPI page
 terraform/ cloudformation/ (optional, after 0.1.0)
 tests/            regression; tests/compat/ compatibility (conftest = harness, test_<ref>.py = feature list,

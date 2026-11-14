@@ -1,8 +1,8 @@
 """The two sides of the compatibility tests: s3keepass's vault files vs KeePassXC (keepassxc-cli), both in the keepassxc container.
 
 The reference is KeePassXC's own command line (tests/compat/keepassxc/Dockerfile). The project side is the web
-UI's crypto path run headless: tests/compat/kdbx_node.js loads src/server/vendor/*.js and the `vault-core`
-block of src/server/index.html into Node — the same code the browser runs. Every file one side writes is read
+UI's crypto path run headless: tests/compat/kdbx_node.js loads client/s3keepass/server/vendor/*.js and the `vault-core`
+block of client/s3keepass/server/index.html into Node — the same code the browser runs. Every file one side writes is read
 by both, and the two readings must be equal (and equal to what was written).
 
     python3 -m pytest tests -q --docker up | run | down    starts the container (compose service "keepassxc")

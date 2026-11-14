@@ -32,7 +32,7 @@ One Lambda behind a Function URL serves the page (`index.html`, no build step, n
 API over one S3 prefix: list `keepass/*.kdbx`, get a file, save it **only if it is still the version you opened**
 (`PUT` with `If-Match: <ETag>`; a new vault with `If-None-Match: *`), list and fetch older versions, delete.
 The browser decrypts and encrypts with **kdbxweb** (KeeWeb's KDBX library) and **argon2-browser** (the Argon2
-reference code as WASM), vendored and pinned in [src/server/vendor/](src/server/vendor/README.md) — no
+reference code as WASM), vendored and pinned in [client/s3keepass/server/vendor/](client/s3keepass/server/vendor/README.md) — no
 hand-written crypto. New vaults are KDBX 4, AES-256, Argon2id 64 MiB × 8. The master key is the password plus an
 optional **key file**, as in KeePass: a KeePassXC `.keyx` / `.key`, one the UI generates, or any file — picked in
 the browser for each unlock and never uploaded.
@@ -103,8 +103,9 @@ copies to the clipboard). Leaving is a download: see [MIGRATION.md](MIGRATION.md
 ## Repository layout
 
 ```
-src/server/       the service: lambda_function.py (vault API), index.html (the UI), vendor/ (kdbxweb, argon2)
-client/           the pip package s3keepass (0.1.0: the version only; the command line comes in 0.2.0)
+client/           the pip package s3keepass (PyPI); the command line comes in 0.2.0
+  s3keepass/server/   the service, deployed from PyPI: lambda_function.py (vault API), index.html (the UI),
+                      vendor/ (kdbxweb, argon2), base_template.json (what a new vault starts with)
 terraform/        deployment: S3 bucket, Lambda + Function URL, IAM
 tests/            regression suite (fake S3); tests/compat/ vs KeePassXC, REPORT.md, TASKS.md
 ```

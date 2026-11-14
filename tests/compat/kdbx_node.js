@@ -1,5 +1,5 @@
-// The web UI's crypto path, headless: loads src/server/vendor/*.js and the `vault-core` <script> block of
-// src/server/index.html — the same bytes the browser runs — into a browser-like realm (no require, no process),
+// The web UI's crypto path, headless: loads client/s3keepass/server/vendor/*.js and the `vault-core` <script> block of
+// client/s3keepass/server/index.html — the same bytes the browser runs — into a browser-like realm (no require, no process),
 // with WebCrypto, atob and DOMParser as a browser has them. tests/compat/test_keepassxc.py runs it in the
 // keepassxc container (node + @xmldom/xmldom there), next to keepassxc-cli, and compares the two.
 //
@@ -26,7 +26,7 @@ const {XMLSerializer} = xmldom;
 const quiet = {warning() {}, error() {}, fatalError(e) { throw new Error(e); }};
 class DOMParser extends xmldom.DOMParser { constructor() { super({errorHandler: quiet}); } }
 
-const SERVER = path.join(__dirname, '..', '..', 'src', 'server');
+const SERVER = path.join(__dirname, '..', '..', 'client', 's3keepass', 'server');
 
 function page() {
   const ctx = vm.createContext({console, atob, btoa, TextDecoder, setTimeout, clearTimeout, DOMParser, XMLSerializer});

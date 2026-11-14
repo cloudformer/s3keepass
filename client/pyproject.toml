@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "s3keepass"           # repo = pip = import name
-version = "0.1.0"
+version = "0.1.1"
 description = "KeePass vaults (.kdbx) on your own S3, opened in a web UI served by a Lambda Function URL; decrypted only in the browser, ≈ $0 when idle."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -29,4 +29,7 @@ Changelog = "https://github.com/cloudformer/s3keepass/blob/main/CHANGELOG.md"
 Issues = "https://github.com/cloudformer/s3keepass/issues"
 
 [tool.setuptools]
-packages = ["s3keepass"]     # rename the directory client/project/ to client/s3keepass/
+packages = ["s3keepass", "s3keepass.server"]   # s3keepass.server = the Lambda (handler s3keepass.server.lambda_function.lambda_handler)
+
+[tool.setuptools.package-data]
+"s3keepass.server" = ["index.html", "base_template.json", "vendor/*"]   # the UI, the new-vault defaults, the pinned crypto libraries

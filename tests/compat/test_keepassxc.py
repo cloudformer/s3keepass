@@ -183,8 +183,8 @@ def test_new_vault_format(kx, ours, box):
 
 
 def test_new_vault_from_the_template(kx, ours, box):
-    """Metadata | a new vault follows the template (terraform/template.json) | groups, no entry history, no recycle bin, its KDF memory; KeePassXC reads it so"""
-    with open(os.path.join(os.path.dirname(__file__), "..", "..", "terraform", "template.json"), encoding="utf-8") as fh:
+    """Metadata | a new vault follows the template (base_template.json) | groups, no entry history, no recycle bin, its KDF memory; KeePassXC reads it so"""
+    with open(os.path.join(os.path.dirname(__file__), "..", "..", "client", "s3keepass", "server", "base_template.json"), encoding="utf-8") as fh:
         template = dict(json.load(fh), groups=["Email", "Finance"], fields=["PIN"])
     f, out = box.box("库1.kdbx"), box.box("out.kdbx")
     ours.create(f, PW, {}, template=template)

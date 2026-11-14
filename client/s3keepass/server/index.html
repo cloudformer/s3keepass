@@ -269,8 +269,8 @@ const Vault = (() => {
 
   // against brute force: every guess at the master key costs one Argon2id run of KDF_MIB memory, and the number of
   // passes is tuned on this device so that opening the vault takes at least UNLOCK_MS (the file lives on S3).
-  // the defaults; a template (terraform/template.json, via /api/template) may set its own
-  const KDF = {memory_mib: 128, parallelism: 2, unlock_ms: 1500}, KDF_MIN_ITERATIONS = 4;
+  // the defaults = base_template.json; the template from /api/template (base + the deployment's custom) sets its own
+  const KDF = {memory_mib: 128, parallelism: 2, unlock_ms: 2000}, KDF_MIN_ITERATIONS = 4;
   async function kdfIterations({memory_mib, parallelism, unlock_ms: targetMs} = KDF) {
     const run = async time => {
       const t0 = Date.now();
@@ -856,7 +856,7 @@ async function newVault() {
     {name: 'pw', label: 'Master password', type: 'password', required: true, generate: true, meter: true, autocomplete: 'new-password'},
     {name: 'pw2', label: 'Repeat master password', type: 'password', required: true, autocomplete: 'new-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: KEYFILE_HINT, generate: () => $('dialog[open] input').value.trim()}],
-    {ok: 'Create', busy: `Tuning Argon2id to ≥ ${(template.kdf && template.kdf.unlock_ms || 1500) / 1000} s on this device, then encrypting …`, done: 'Created', note: 'The master password never leaves this browser. ' +
+    {ok: 'Create', busy: `Tuning Argon2id to ≥ ${(template.kdf && template.kdf.unlock_ms || 2000) / 1000} s on this device, then encrypting …`, done: 'Created', note: 'The master password never leaves this browser. ' +
        'There is no recovery: if you forget it, the vault cannot be opened.',
      validate: async v => {
        const name = v.name.trim();

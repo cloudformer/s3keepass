@@ -1,10 +1,10 @@
 # s3keepass compatibility report · [tasks](TASKS.md)
 
-Generated 2026-10-29 by `pytest tests` · s3keepass 0.1.0 · Python 3.9.6
+Generated 2026-11-14 by `pytest tests` · s3keepass 0.1.1 · Python 3.9.6
 
 Each row is one feature exercised the same way on the reference and on the project; results, types and errors must match. The feature list only grows (a removed case would show in git), so the support percentage can only move up.
 
-Whole test run: **47 passed**, 0 failed, 0 expected failures (known gaps), 0 skipped — regression suite (`tests/`) and compatibility suite (`tests/compat/`) together.
+Whole test run: **77 passed**, 0 failed, 0 expected failures (known gaps), 0 skipped — regression suite (`tests/`) and compatibility suite (`tests/compat/`) together.
 
 Open tasks: none — see [TASKS.md](TASKS.md).
 
@@ -22,13 +22,14 @@ What each business step is checked by. ✅ every listed test passed · 🔴 one 
 
 ## s3keepass vault files vs KeePassXC (lambda_handler in-process) — reference: KeePassXC 2.7.9 (keepassxc-cli, Docker)
 
-**Support 100%** (14 / 14 features) · 14 verified
+**Support 100%** (17 / 17 features) · 17 verified
 
 ✅ verified · ❌ gap — known difference, the note names the task that closes it · ⚪ quirk — documented, deliberately not aligned · ⛔ unsupported by design, refused with NotSupportedError · 🟡 fixed — xfail marker to remove · 🔴 regression · ⏭ not run
 
 | Feature | Status | Note |
 |---|---|---|
 | **Data** | | |
+| Clean up in s3keepass: every entry's history and the recycle bin emptied | ✅ | KeePassXC finds no history, an empty bin, the rest unchanged |
 | a vault KeePassXC creates opens in s3keepass | ✅ | KeePassXC's defaults (Argon2d, 1 s key derivation) |
 | a vault s3keepass creates opens in KeePassXC with the same groups and entries | ✅ | nested groups, Unicode, multi-line notes, tags, protected attributes |
 | add / edit / delete / rename in s3keepass, read by KeePassXC | ✅ | on a KeePassXC-made file; an edit keeps the previous version in the entry's history; delete = recycle bin |
@@ -39,9 +40,11 @@ What each business step is checked by. ✅ every listed test passed · 🔴 one 
 | change the master key: add a key file in s3keepass, remove it again; add one in KeePassXC | ✅ | each change seen by the other side |
 | change the master password in s3keepass | ✅ | KeePassXC opens the file with the new one only |
 | delete a group in s3keepass | ✅ | KeePassXC finds it, with its entries, in the recycle bin |
+| move entries to another group (several at once) in s3keepass | ✅ | KeePassXC finds them there, nowhere else, unchanged |
 | password + key file: a KeePassXC vault opens in s3keepass | ✅ | the .keyx KeePassXC generates; without it, refused |
 | password + key file: an s3keepass vault opens in KeePassXC | ✅ | the .keyx the UI's "New" button makes; without it, refused |
 | **Errors** | | |
 | a wrong master password opens nothing | ✅ | on both sides, for files from either side |
 | **Metadata** | | |
-| new vaults: KDBX 4, AES-256, Argon2id 64 MiB x 8 | ✅ | KeePassXC's defaults with Argon2id instead of Argon2d |
+| a new vault follows the template (base_template.json) | ✅ | groups, no entry history, no recycle bin, its KDF memory; KeePassXC reads it so |
+| new vaults: KDBX 4, AES-256, Argon2id 128 MiB, passes tuned to >= 1.5 s | ✅ | against brute force (Frank, 2026-11-11: was a fixed 64 MiB x 8) |

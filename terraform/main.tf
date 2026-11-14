@@ -1,209 +1,22 @@
-data "aws_caller_identity" "me" {}
+# The deployment is the published module: cloudformer/infra/aws//modules/s3keepass on the Terraform Registry,
+# which deploys a released s3keepass from PyPI (s3keepass_version, default: the version the module was tested with).
+module "s3keepass" {
+  source  = "cloudformer/infra/aws//modules/s3keepass"
+  version = "0.1.3"
+  # source = "../../terraform-aws-infra/modules/s3keepass" # local: the module's working tree, before a release
 
-locals {
-  role   = "${var.project_name}-lambda-role"
-  prefix = "keepass/" # fixed layout: s3://<bucket>/keepass/<vault>.kdbx
-  bucket = var.bucket != "" ? var.bucket : "${var.project_name}-${var.env}-${data.aws_caller_identity.me.account_id}"
-}
+  # module 0.1.3 deploys s3keepass 0.1.1 by default; uncomment and set a newer release to deploy it before the module moves
+  # s3keepass_version = "0.1.1"
 
-# ---------------- S3: every vault is one .kdbx under keepass/ in this private bucket ----------------
-resource "aws_s3_bucket" "vaults" {
-  bucket        = local.bucket
-  force_destroy = var.force_destroy # false: destroy stops at a non-empty bucket, so no vault is lost by accident
-}
-
-resource "aws_s3_bucket_public_access_block" "vaults" {
-  bucket                  = aws_s3_bucket.vaults.id
-  block_public_acls       = true
-  block_public_policy     = true
-  ignore_public_acls      = true
-  restrict_public_buckets = true
-}
-
-# every save is a new object version: an older vault is one click away in the UI (Versions)
-resource "aws_s3_bucket_versioning" "vaults" {
-  bucket = aws_s3_bucket.vaults.id
-  versioning_configuration {
-    status = "Enabled"
-  }
-}
-
-# at rest: SSE-S3 (AES-256, S3-managed keys, no KMS cost). The vaults are KDBX-encrypted before they get here;
-# files written earlier under SSE-KMS stay readable and become SSE-S3 on their next save.
-resource "aws_s3_bucket_server_side_encryption_configuration" "vaults" {
-  bucket = aws_s3_bucket.vaults.id
-  rule {
-    apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
-    }
-  }
-}
-
-resource "aws_s3_bucket_policy" "vaults" {
-  bucket     = aws_s3_bucket.vaults.id
-  depends_on = [aws_s3_bucket_public_access_block.vaults]
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Sid       = "DenyInsecureTransport"
-      Effect    = "Deny"
-      Principal = "*"
-      Action    = "s3:*"
-      Resource  = [aws_s3_bucket.vaults.arn, "${aws_s3_bucket.vaults.arn}/*"]
-      Condition = { Bool = { "aws:SecureTransport" = "false" } }
-    }]
-  })
-}
-
-# old versions: keep the newest var.keep_versions per vault (older ones go after a day); clean up the rest
-resource "aws_s3_bucket_lifecycle_configuration" "vaults" {
-  bucket     = aws_s3_bucket.vaults.id
-  depends_on = [aws_s3_bucket_versioning.vaults]
-  rule {
-    id     = "keep-newest-versions"
-    status = "Enabled"
-    filter {
-      prefix = local.prefix
-    }
-    noncurrent_version_expiration {
-      noncurrent_days           = 1
-      newer_noncurrent_versions = var.keep_versions
-    }
-    expiration {
-      expired_object_delete_marker = true
-    }
-    abort_incomplete_multipart_upload {
-      days_after_initiation = 1
-    }
-  }
-  # access records: one small object per event under log/, gone after var.log_retention_days
-  rule {
-    id     = "expire-access-records"
-    status = "Enabled"
-    filter {
-      prefix = "log/"
-    }
-    expiration {
-      days = var.log_retention_days
-    }
-    noncurrent_version_expiration {
-      noncurrent_days = 1
-    }
-  }
-}
-
-# the new-vault template: terraform/template.json in the repository, uploaded on every apply that changes it
-resource "aws_s3_object" "template" {
-  bucket       = aws_s3_bucket.vaults.id
-  key          = "config/template.json"
-  source       = "${path.module}/template.json"
-  source_hash  = filemd5("${path.module}/template.json") # not etag: the ETag S3 returns is not always the MD5, so etag drifts
-  content_type = "application/json"
-}
-
-# ---------------- IAM: one role, least privilege — only keepass/*.kdbx ----------------
-resource "aws_iam_role" "lambda" {
-  name = local.role
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [{
-      Effect    = "Allow"
-      Principal = { Service = "lambda.amazonaws.com" }
-      Action    = "sts:AssumeRole"
-    }]
-  })
-}
-
-resource "aws_iam_role_policy" "lambda" {
-  name = "${local.role}-policy"
-  role = aws_iam_role.lambda.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"]
-        Resource = "arn:aws:logs:*:*:*"
-      },
-      {
-        Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"]
-        Resource = "${aws_s3_bucket.vaults.arn}/${local.prefix}*.kdbx"
-      },
-      {
-        # access records: write one per event, read them back for the UI; never delete
-        Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:PutObject"]
-        Resource = "${aws_s3_bucket.vaults.arn}/log/*"
-      },
-      {
-        # the new-vault template (terraform/template.json, uploaded below): read only
-        Effect   = "Allow"
-        Action   = ["s3:GetObject"]
-        Resource = "${aws_s3_bucket.vaults.arn}/config/template.json"
-      },
-      {
-        Effect    = "Allow"
-        Action    = ["s3:ListBucket", "s3:ListBucketVersions"]
-        Resource  = aws_s3_bucket.vaults.arn
-        Condition = { StringLike = { "s3:prefix" = ["${local.prefix}*", "log/*"] } }
-      }
-    ]
-  })
-}
-
-# ---------------- the service: one Lambda + Function URL (web UI + API) ----------------
-data "archive_file" "server" {
-  type        = "zip"
-  source_dir  = "${path.module}/../client/s3keepass/server"
-  excludes    = ["**/__pycache__/**", "**/.DS_Store"]
-  output_path = "${path.module}/.build/server.zip"
-}
-
-resource "aws_lambda_function" "server" {
-  function_name    = "${var.project_name}-lambda"
-  role             = aws_iam_role.lambda.arn
-  runtime          = "python3.12"
-  architectures    = [var.architecture]
-  handler          = "lambda_function.lambda_handler"
-  filename         = data.archive_file.server.output_path
-  source_code_hash = data.archive_file.server.output_base64sha256
-  timeout          = 30
-  memory_size      = 256
-
-  environment {
-    variables = {
-      USER_NAME = var.console_auth_username
-      PASSWORD  = var.console_auth_password
-      CONSOLE   = var.console ? "1" : "0"
-      BUCKET    = aws_s3_bucket.vaults.bucket
-    }
-  }
-}
-
-# function_url_auth = NONE:    public URL, our user/password is the only gate (the vaults stay KDBX-encrypted).
-#                              A public URL needs BOTH permission statements (AWS requirement since Oct 2025).
-# function_url_auth = AWS_IAM: AWS verifies SigV4 + IAM first; no public permissions are created.
-# No CORS: the UI is served by the same URL, and no other site needs to call it.
-resource "aws_lambda_function_url" "server" {
-  function_name      = aws_lambda_function.server.function_name
-  authorization_type = var.function_url_auth
-}
-
-resource "aws_lambda_permission" "url" {
-  count                  = var.function_url_auth == "NONE" ? 1 : 0
-  statement_id           = "AllowPublicFunctionUrl"
-  action                 = "lambda:InvokeFunctionUrl"
-  function_name          = aws_lambda_function.server.function_name
-  principal              = "*"
-  function_url_auth_type = "NONE"
-}
-
-resource "aws_lambda_permission" "url_invoke" {
-  count                    = var.function_url_auth == "NONE" ? 1 : 0
-  statement_id             = "AllowPublicFunctionUrlInvoke"
-  action                   = "lambda:InvokeFunction"
-  function_name            = aws_lambda_function.server.function_name
-  principal                = "*"
-  invoked_via_function_url = true
+  project_name          = var.project_name
+  console               = var.console
+  function_url_auth     = var.function_url_auth
+  console_auth_username = var.console_auth_username
+  console_auth_password = var.console_auth_password
+  bucket                = var.bucket != "" ? var.bucket : null
+  keep_versions         = var.keep_versions
+  log_retention_days    = var.log_retention_days
+  force_destroy         = var.force_destroy
+  architecture          = var.architecture
+  custom_template       = var.custom_template
 }

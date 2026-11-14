@@ -46,8 +46,12 @@ terraform -chdir=terraform apply -var-file=real-s3keepass.json
 terraform -chdir=terraform output                      # console_url、bucket
 ```
 
-`terraform -chdir=terraform destroy -var-file=real-s3keepass.json` 会拆掉全部资源，但桶里还有库时会停下，除非设了
-`"force_destroy": true`——先把要留的库下载下来。
+`terraform/` 调用的是 Terraform Registry 上发布的模块
+[`cloudformer/infra/aws//modules/s3keepass`](https://github.com/cloudformer/terraform-aws-infra/tree/main/modules/s3keepass)，
+它部署 PyPI 上发布的 `s3keepass`，不从本仓库打包；全部变量见模块的 README（`custom_template`：新建库的设置，按字段覆盖）。
+
+`terraform -chdir=terraform destroy -var-file=real-s3keepass.json` 会拆掉全部资源，但桶里还有库时会停下：先把要留的库
+下载下来，设 `"force_destroy": true`，`apply`（桶的这个设置以 state 为准），再 `destroy`。
 
 ### 2. 打开网址
 
@@ -97,15 +101,29 @@ python3 -m pytest tests -q --docker down   # 同上，不管结果一律关掉
 client/           pip 包 s3keepass（PyPI）；命令行在 0.2.0
   s3keepass/server/   服务本体，从 PyPI 部署：lambda_function.py（库 API）、index.html（网页）、
                       vendor/（kdbxweb、argon2）、base_template.json（新建库的默认设置）
-terraform/        部署：S3 桶、Lambda + Function URL、IAM
+terraform/        部署：调用 Registry 模块（S3 桶、Lambda + Function URL、IAM）
 tests/            回归测试（假 S3）；tests/compat/ 对比 KeePassXC、REPORT.md、TASKS.md
 ```
 
 ## 发版
 
-CI 每次 push 跑全部测试（带 keepassxc 容器）。发版就是打 tag：改 `client/pyproject.toml` 和
-`client/s3keepass/__init__.py` 的版本号，写 CHANGELOG，提交，然后 `git tag vX.Y.Z && git push --tags`
-（测试 → 构建 → PyPI；tag 必须等于版本号）。
+Lambda 打包在 pip 包里（PyPI）；部署它的 Terraform 模块是
+[`cloudformer/infra/aws//modules/s3keepass`](https://github.com/cloudformer/terraform-aws-infra/tree/main/modules/s3keepass)
+（Registry）。CI 每次 push 跑全部测试（带 keepassxc 容器）。发版按这个顺序（上一步成功才做下一步）：
+
+1. **测试**：先启动 Docker，再 `python3 -m pytest tests -q --docker run`（预期：全部通过，KeePassXC 兼容 100%）；
+   改了网页的，也在浏览器里看一遍。
+2. **发包**：改版本号（`client/pyproject.toml`、`client/s3keepass/__init__.py`），写 CHANGELOG，提交，push，然后
+   `git tag vX.Y.Z && git push --tags`：CI 测试、打包，把 `s3keepass` X.Y.Z 发到 PyPI（几分钟；tag 必须等于版本号）。
+   用 https://pypi.org/simple/s3keepass/ 确认——`pip index versions` 依赖的 JSON 接口可能更新得慢。
+3. **部署**：`terraform/main.tf` 里取消注释 `s3keepass_version = "X.Y.Z"`，然后 `terraform -chdir=terraform plan`
+   （预期：只有 Lambda 的代码更新），再 `apply`。
+4. **设为模块默认版本**（想让别的部署不写 `s3keepass_version` 也用上它时）：在
+   [terraform-aws-infra](https://github.com/cloudformer/terraform-aws-infra) 里改 `modules/s3keepass/variables.tf`
+   的默认 `s3keepass_version`，提交，push，`make test`（mock 测试，不连 AWS），然后
+   `AWS_PROFILE=dev TF_VAR_console_password='<至少 16 位>' make release PROJECT=s3keepass VERSION=vA.B.C`
+   （mock 测试、真实部署 + smoke 测试 + 销毁，然后打 tag；Registry 自动发布）。回到这里：`terraform/main.tf` 里
+   `version = "A.B.C"`，再注释掉 `s3keepass_version`，`terraform -chdir=terraform init -upgrade`，再 `plan`（预期：No changes）。
 
 ---
 

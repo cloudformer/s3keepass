@@ -52,8 +52,14 @@ terraform -chdir=terraform apply -var-file=real-s3keepass.json
 terraform -chdir=terraform output                      # console_url, bucket
 ```
 
+`terraform/` calls the published module,
+[`cloudformer/infra/aws//modules/s3keepass`](https://github.com/cloudformer/terraform-aws-infra/tree/main/modules/s3keepass)
+on the Terraform Registry, which deploys a released `s3keepass` from PyPI; nothing is built from this repository,
+and the module's README lists every variable (`custom_template`: the new-vault settings, field by field).
+
 `terraform -chdir=terraform destroy -var-file=real-s3keepass.json` removes everything, but stops at a bucket that
-still holds vaults unless you set `"force_destroy": true` — download what you want to keep first.
+still holds vaults: download what you want to keep, set `"force_destroy": true`, `apply` (the bucket takes the
+setting from the state), then `destroy`.
 
 ### 2. Open the URL
 
@@ -106,15 +112,32 @@ copies to the clipboard). Leaving is a download: see [MIGRATION.md](MIGRATION.md
 client/           the pip package s3keepass (PyPI); the command line comes in 0.2.0
   s3keepass/server/   the service, deployed from PyPI: lambda_function.py (vault API), index.html (the UI),
                       vendor/ (kdbxweb, argon2), base_template.json (what a new vault starts with)
-terraform/        deployment: S3 bucket, Lambda + Function URL, IAM
+terraform/        deployment: calls the Registry module (S3 bucket, Lambda + Function URL, IAM)
 tests/            regression suite (fake S3); tests/compat/ vs KeePassXC, REPORT.md, TASKS.md
 ```
 
 ## Releasing
 
-CI runs the whole suite on every push (with the keepassxc container). A release is a tag: bump the version in
-`client/pyproject.toml` and `client/s3keepass/__init__.py`, add the CHANGELOG entry, commit, then
-`git tag vX.Y.Z && git push --tags` (tests → build → PyPI; the tag must equal the version).
+The Lambda ships in the pip package (PyPI); the Terraform module that deploys it is
+[`cloudformer/infra/aws//modules/s3keepass`](https://github.com/cloudformer/terraform-aws-infra/tree/main/modules/s3keepass)
+(Registry). CI runs the whole suite on every push (with the keepassxc container). A release, in this order (each
+step only after the one before succeeded):
+
+1. **Test**: start Docker, then `python3 -m pytest tests -q --docker run` (expected: all passed, KeePassXC support
+   100%); for a UI change, look at it in a browser too.
+2. **Publish the package**: bump the version (`client/pyproject.toml`, `client/s3keepass/__init__.py`), CHANGELOG,
+   commit, push, then `git tag vX.Y.Z && git push --tags`: CI tests, builds and publishes `s3keepass` X.Y.Z to
+   PyPI (a few minutes; the tag must equal the version). Check https://pypi.org/simple/s3keepass/ — the JSON API
+   behind `pip index versions` can lag behind it.
+3. **Deploy it**: uncomment `s3keepass_version = "X.Y.Z"` in `terraform/main.tf`, then `terraform -chdir=terraform
+   plan` (expected: only the Lambda's code changes) and `apply`.
+4. **Make it the module's default** (when other deployments should get it without setting `s3keepass_version`): in
+   [terraform-aws-infra](https://github.com/cloudformer/terraform-aws-infra) set the default `s3keepass_version` in
+   `modules/s3keepass/variables.tf`, commit, push, `make test` (mock tests, no AWS), then
+   `AWS_PROFILE=dev TF_VAR_console_password='<16+ characters>' make release PROJECT=s3keepass VERSION=vA.B.C`
+   (mock tests, a real deploy + smoke test + destroy, then the tag; the Registry publishes it). Back here:
+   `version = "A.B.C"` in `terraform/main.tf`, comment out `s3keepass_version` again,
+   `terraform -chdir=terraform init -upgrade`, then `plan` (expected: No changes).
 
 ---
 

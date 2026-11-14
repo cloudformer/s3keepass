@@ -23,7 +23,7 @@ variable "assume_role_arn" {
 
 # ---- app ----
 variable "env" {
-  description = "Environment label (tags, resource names)"
+  description = "Environment label (tags)"
   type        = string
   default     = "dev"
 }
@@ -70,7 +70,7 @@ variable "console_auth_password" {
 
 # ---- the vaults' bucket ----
 variable "bucket" {
-  description = "S3 bucket for the vaults; \"\" = <project_name>-<env>-<account id>"
+  description = "S3 bucket for the vaults; \"\" = the module's <project_name>-vaults-<account id>"
   type        = string
   default     = ""
 }
@@ -78,7 +78,7 @@ variable "bucket" {
 variable "keep_versions" {
   description = "Older versions kept per vault (every save is one); older ones are deleted after a day"
   type        = number
-  default     = 100
+  default     = 5
 
   validation {
     condition     = var.keep_versions >= 1 && var.keep_versions <= 100
@@ -107,4 +107,11 @@ variable "architecture" {
     condition     = contains(["arm64", "x86_64"], var.architecture)
     error_message = "architecture must be arm64 or x86_64."
   }
+}
+
+# ---- advanced: the new-vault template ----
+variable "custom_template" {
+  description = "Overrides of the package's base_template.json, field by field (kdf too), e.g. {\"kdf\": {\"unlock_ms\": 3000}, \"recycle_bin\": true}; null = the base as is. The module checks the fields."
+  type        = any
+  default     = null
 }

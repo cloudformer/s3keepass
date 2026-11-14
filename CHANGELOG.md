@@ -52,6 +52,14 @@
   its extra fields (every new entry starts with them, empty); its entry history (0 = none kept); recycle bin off =
   a delete is final, and the UI says so. KeePassXC reads such a vault the same way (compatibility test).
 
+- Every unlock is recorded (task 9): the page reports success / failure (path and true / false only) right after
+  it tries; the file list's "Last unlock" and the access records show it.
+- 🧹 Clean up (task 10): empties every entry's history and the recycle bin, then saves — the file shrinks. Opening a
+  vault whose own settings differ from the template (history kept, recycle bin) shows a notice with "Apply the
+  template"; a vault over 3 MB shows how close it is to the 4.5 MB limit.
+- At rest the bucket uses SSE-S3 (task 11, was SSE-KMS with aws/s3): no KMS in the path; files written before stay
+  readable and change on their next save. The vaults are KDBX-encrypted either way.
+
 ## 0.1.0 — 2026-10-29
 
 First release: the web UI replaces a local KeePass client.

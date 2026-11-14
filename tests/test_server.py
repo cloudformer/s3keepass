@@ -151,7 +151,7 @@ def test_unconditional_save_is_refused(fake_s3):
 def test_saves_are_sse_kms_ciphertext(fake_s3):
     """Acceptance 5: only KeePass files are accepted, and every put asks for SSE-KMS."""
     create("库1")
-    assert [c for c in fake_s3.calls if c["Key"].startswith("keepass/")][-1]["ServerSideEncryption"] == "aws:kms"   # task 4: skip log/ writes
+    assert [c for c in fake_s3.calls if c["Key"].startswith("keepass/")][-1]["ServerSideEncryption"] == "AES256"   # task 11: SSE-S3 (was aws:kms)
     status, out, _ = call("PUT", vault("plain"), b'{"password": "hunter2"}', headers={"if-none-match": "*"})
     assert status == 400 and "not a KeePass file" in out["error"]
     assert call("PUT", vault("empty"), b"", headers={"if-none-match": "*"})[0] == 400

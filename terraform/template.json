@@ -1,5 +1,5 @@
 {
-  "kdf": { "memory_mib": 128, "parallelism": 2, "unlock_ms": 1500 },
+  "kdf": { "memory_mib": 128, "parallelism": 2, "unlock_ms": 2000 },
   "cipher": "aes256",
   "groups": [],
   "fields": [],

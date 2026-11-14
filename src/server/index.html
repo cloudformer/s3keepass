@@ -11,7 +11,7 @@
   --text: #111827; --muted: #6b7280; --faint: #9ca3af;
   --accent: #2563eb; --accent-bg: #dbeafe; --accent-text: #1e40af;
   --ok: #059669; --err: #dc2626; --warn-bg: #fffbeb; --warn-line: #f59e0b;
-  --bar: #1f2937; --bar-text: #f9fafb; --bar-muted: #9ca3af;
+  --bar: #1f2937; --bar-text: #f9fafb; --bar-muted: #9ca3af; --bar-vault: #78350f; --open: #f59e0b;
   --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
@@ -19,7 +19,7 @@
     --bg: #0b0f17; --panel: #111827; --panel2: #0f1623; --line: #1f2937; --line2: #374151;
     --text: #e5e7eb; --muted: #9ca3af; --faint: #6b7280;
     --accent: #3b82f6; --accent-bg: #1e3a8a; --accent-text: #dbeafe;
-    --warn-bg: #2a2110; --bar: #030712;
+    --warn-bg: #2a2110; --bar: #030712; --bar-vault: #451a03;
   }
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -39,6 +39,13 @@ a { color: var(--accent); }
 .brand { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .brand .logo { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, #3b82f6, #8b5cf6);
   display: grid; place-items: center; font-size: 14px; }
+/* where you are: the file list (neutral bar) or inside an unlocked vault file (amber bar + badge) */
+.mode { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.mode.files { background: rgba(255,255,255,.12); color: var(--bar-text); }
+.mode.open { background: var(--open); color: #111827; }
+body.in-vault .bar { background: var(--bar-vault); }
+body.in-vault #vault { box-shadow: inset 0 3px 0 var(--open); }
+.opened { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--open); color: #111827; }
 .crumbs { display: flex; align-items: center; gap: 6px; color: var(--bar-muted); font-size: 13px; }
 .crumbs b { color: var(--bar-text); font-weight: 600; }
 .tools { display: flex; gap: 2px; flex-wrap: wrap; }
@@ -107,6 +114,9 @@ tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
 .node { display: flex; align-items: center; gap: 4px; padding: 4px 10px 4px 0; cursor: pointer; user-select: none; }
 .node:hover { background: var(--line); }
 .node.sel { background: var(--accent-bg); color: var(--accent-text); font-weight: 600; }
+.node.here { cursor: default; }
+.node.here:not(.sel) { color: var(--muted); }
+.node.here:not(.sel):hover { background: none; }
 .node .caret { width: 16px; text-align: center; color: var(--faint); font-size: 10px; flex: none; }
 .node .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .node .count { font-size: 11px; color: var(--faint); }
@@ -203,6 +213,7 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 <body>
 <header class="bar">
   <div class="brand" id="brand" title="All vaults"><span class="logo">🔐</span>s3keepass</div>
+  <span class="mode" id="mode"></span>
   <nav class="crumbs" id="crumbs"></nav>
   <div class="sep"></div>
   <div class="tools" id="tools"></div>
@@ -301,6 +312,27 @@ const Vault = (() => {
   function templateFields(db) {
     try { return JSON.parse((db.meta.customData.get(FIELDS_KEY) || {}).value || '[]'); } catch (e) { return []; }
   }
+  // clean up: every entry's history emptied, and everything in the recycle bin deleted for good (the file shrinks)
+  function clearHistory(db) {
+    for (const e of db.getDefaultGroup().allEntries()) e.history = [];
+    const bin = recycleBin(db);
+    if (bin) for (const item of [...bin.groups, ...bin.entries]) db.move(item, null);
+  }
+  // where the vault's own settings differ from the template: [{what, now, template}]
+  function templateDiff(db, t) {
+    const out = [];
+    if (Number.isInteger(t.history_max_items) && db.meta.historyMaxItems !== t.history_max_items)
+      out.push({what: 'entry history kept', now: db.meta.historyMaxItems, template: t.history_max_items});
+    if (typeof t.recycle_bin === 'boolean' && !!db.meta.recycleBinEnabled !== t.recycle_bin)
+      out.push({what: 'recycle bin', now: db.meta.recycleBinEnabled ? 'on' : 'off', template: t.recycle_bin ? 'on' : 'off'});
+    return out;
+  }
+  // bring those settings in line with the template (and clean up what it no longer keeps)
+  function followTemplate(db, t) {
+    if (Number.isInteger(t.history_max_items)) db.meta.historyMaxItems = t.history_max_items;
+    if (t.recycle_bin === false) { clearHistory(db); const bin = recycleBin(db); db.meta.recycleBinEnabled = false; if (bin) db.move(bin, null); }
+    if (t.history_max_items === 0) clearHistory(db);
+  }
   // a delete is final when the item is already in the bin, or the vault has no recycle bin
   const deleteIsFinal = (db, item) => !db.meta.recycleBinEnabled || inRecycleBin(db, item);
   const open = async (bytes, password, keyFile) => K.Kdbx.load(bytes, await creds(password, keyFile));
@@ -350,13 +382,14 @@ const Vault = (() => {
   function remove(db, item) { if (deleteIsFinal(db, item)) db.move(item, null); else db.remove(item); }
   function moveEntries(db, entries, group) { for (const e of entries) if (e.parentGroup !== group) db.move(e, group); }
   return {create, open, save, setMasterKey, isMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin,
-          inRecycleBin, remove, moveEntries, templateFields, deleteIsFinal};
+          inRecycleBin, remove, moveEntries, templateFields, deleteIsFinal, clearHistory, templateDiff, followTemplate};
 })();
 </script>
 <script>
 // ---------------- shell: DOM helper, sign-in (HTTP Basic), every server call, history ----------------
 const $ = s => document.querySelector(s);
 const IDLE_LOCK_MIN = 5, CLIPBOARD_CLEAR_S = 30, MAX_BYTES = 4718592;   // 4.5 MB, the server's limit
+const WARN_BYTES = 3 * 1048576;                                          // past 3 MB: say so, suggest a clean-up
 const NAME_RE = /^[\p{L}\p{N}_](?:[\p{L}\p{N}_ .()-]{0,62}[\p{L}\p{N}_.()-])?$/u;   // = lambda_function.NAME
 const FOLDER_RE = /^[\p{L}\p{N}_][\p{L}\p{N}_@.+-]{0,127}$/u;            // = lambda_function.FOLDER
 
@@ -669,10 +702,12 @@ function crumbs(...parts) {
 }
 
 // ---------------- vault files: folders | files | file — the same layout as an open vault ----------------
-let F = {folder: '', file: null, ticked: new Set(), folders: []};   // the file page: selected folder, file, ticked file names
+let F = {folder: '', file: null, ticked: new Set(), folders: [], closed: new Set()};   // the file page: selected folder, file, ticked file names, folded folders
 
 async function showHome() {
   $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true;
+  document.body.classList.remove('in-vault');
+  $('#mode').className = 'mode files'; $('#mode').textContent = '🗂 Vault files';
   $('#signout').hidden = false;
   renderSaveState();
   try { F.folders = (await call('GET', '/api/tree')).folders; }
@@ -688,13 +723,27 @@ function renderHome() {
   const files = F.folders.find(f => f.name === F.folder).files, v = F.file;
   crumbs('Vaults', ...(F.folder ? [F.folder] : []));
   toolbar([{icon: '↻', label: 'Refresh', do: showHome}]);   // actions on files sit on the file list's head
-  // left: S3 folders
-  const node = (f, depth) => h('div', {class: 'node' + (f.name === F.folder ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
-      onclick: () => { F.folder = f.name; F.file = null; F.ticked.clear(); vaults = f.files; renderHome(); }},
-    h('span', {class: 'caret'}, depth === 0 && F.folders.length > 1 ? '▾' : ''), h('span', {}, depth ? '📁' : '🗃'),
+  // left: S3 folders and the vault files in each, like a file explorer: folders first, then files; ▾ / ▸ folds
+  const pick = f => { if (f.name !== F.folder) { F.folder = f.name; F.ticked.clear(); vaults = f.files; } };
+  const node = (f, depth) => h('div', {class: 'node' + (f.name === F.folder && !v ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
+      onclick: () => { pick(f); F.file = null; renderHome(); }},
+    h('span', {class: 'caret', onclick: ev => { ev.stopPropagation(); F.closed.has(f.name) ? F.closed.delete(f.name) : F.closed.add(f.name); renderHome(); }},
+      F.closed.has(f.name) ? '▸' : '▾'),
+    h('span', {}, depth ? '📁' : '🗃'),
     h('span', {class: 'name', text: f.name || 'Vaults'}), h('span', {class: 'count'}, f.files.length || ''));
-  $('#ftree').replaceChildren(h('div', {class: 'pane-title'}, 'Folders'),
-    node(F.folders[0], 0), ...F.folders.slice(1).map(f => node(f, 1)));
+  const fileNode = (f, x, depth) => h('div', {class: 'node' + (v && f.name === F.folder && x.name === v.name ? ' sel' : ''),
+      style: `padding-left:${8 + depth * 14}px`, title: x.path,
+      onclick: () => { pick(f); F.file = x; renderHome(); }, ondblclick: () => unlock(x)},
+    h('span', {class: 'caret'}), safe(false), h('span', {class: 'name', text: `${x.name}.kdbx`}));
+  const [root, ...subs] = F.folders, items = [node(root, 0)];
+  if (!F.closed.has(root.name)) {
+    for (const s of subs) {
+      items.push(node(s, 1));
+      if (!F.closed.has(s.name)) items.push(...s.files.map(x => fileNode(s, x, 2)));
+    }
+    items.push(...root.files.map(x => fileNode(root, x, 1)));
+  }
+  $('#ftree').replaceChildren(h('div', {class: 'pane-title'}, 'Folders'), ...items);
   // middle: the vault files in the folder
   const unlockMark = u => !u ? '' : `${u.ok ? '✓' : '✗'} ${when(u.at)}`;
   for (const n of [...F.ticked]) if (!files.some(x => x.name === n)) F.ticked.delete(n);
@@ -881,6 +930,11 @@ async function versionsDialog(v) {
 }
 
 // ---------------- unlock / lock ----------------
+// the access record of an unlock: only the vault's path and true / false, never anything secret. Best effort, never waited for.
+function reportUnlock(v, ok) {
+  call('POST', '/api/audit/unlock', {body: JSON.stringify({path: s3Path(v.name, v.folder), ok}),
+    headers: {'content-type': 'application/json'}}).catch(() => {});
+}
 async function unlock(v) {
   let file;
   try { file = await call('GET', vaultPath(v.name, v.folder), {raw: true}); } catch (e) { return toast(e.message, true); }
@@ -892,19 +946,27 @@ async function unlock(v) {
      validate: async x => {
        if (!x.pw && !x.key) return 'Enter the master password (or choose the key file)';
        try { db = await Vault.open(file.bytes.slice(0), x.pw, x.key); }
-       catch (e) { return e.code === 'InvalidKey' ? 'Wrong master password or key file' : `Cannot open: ${e.message}`; }
+       catch (e) {
+         if (e.code === 'InvalidKey') { reportUnlock(v, false); return 'Wrong master password or key file'; }
+         return `Cannot open: ${e.message}`;
+       }
+       reportUnlock(v, true);
      }});
-  if (r && db) openDb({name: v.name, folder: v.folder || '', db, etag: file.etag});
+  if (r && db) openDb({name: v.name, folder: v.folder || '', db, etag: file.etag, size: file.bytes.byteLength});
 }
 
-function openDb({name, folder = '', db, etag}) {
-  S = {name, folder, db, etag, group: db.getDefaultGroup(), entry: null, ticked: new Set(), search: '', open: new Set(), conflict: null, saved: null, error: null};
+function openDb({name, folder = '', db, etag, size = 0}) {
+  S = {name, folder, db, etag, size, diff: [], group: db.getDefaultGroup(), entry: null, ticked: new Set(), search: '', open: new Set(), conflict: null, saved: null, error: null};
   S.open.add(S.group.uuid.id);
   $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false;
+  document.body.classList.add('in-vault');
+  $('#mode').className = 'mode open'; $('#mode').textContent = `🔓 Inside ${name}.kdbx`;
   $('#signout').hidden = true;   // inside a vault the way out is Lock; Sign out is on the vault-file list only
   $('#search').value = '';
   lastActive = Date.now();
   renderVault();
+  call('GET', '/api/template').then(r => { if (S && S.db === db) { S.template = r.template; S.diff = Vault.templateDiff(db, r.template); renderVault(); } })
+    .catch(() => {});
 }
 
 async function lock() {
@@ -941,7 +1003,7 @@ function save() {
       const bytes = await Vault.save(s.db);
       try {
         const r = await putVault(s.name, bytes, {'if-match': s.etag}, '', s.folder);
-        s.etag = r.etag; s.saved = new Date(); s.error = null;
+        s.etag = r.etag; s.size = bytes.byteLength; s.saved = new Date(); s.error = null;
       } catch (e) {
         if (e.status === 409) { s.conflict = bytes; renderVault(); }       // refused: never overwrite another save
         else { s.error = e.message; toast('Not saved: ' + e.message, true); }
@@ -994,6 +1056,7 @@ function renderVault() {
     {icon: '🔑', label: 'Copy password', title: 'Copy the password (⌘C)', disabled: !S.entry, do: () => copyField('password')},
     '|',
     {icon: '🎲', label: 'Generator', do: () => generatorDialog(false)},
+    {icon: '🧹', label: 'Clean up', title: 'Empty every entry\'s history and the recycle bin, then save (the file shrinks)', disabled: ro, do: cleanUp},
     {icon: '⚙', label: 'Master key', title: 'Change the master password and key file', disabled: ro, do: changeMaster},
   ]);
   renderTree(ro); renderList(ro); renderDetail(ro); renderSaveState();
@@ -1015,16 +1078,16 @@ function renderTree(ro) {
     return h('li', {}, row, open && kids.length ? h('ul', {}, kids.map(k => node(k, depth + 1))) : null);
   };
   const inBin = Vault.inRecycleBin(S.db, S.group), atRoot = S.group === rootGroup;
-  // the same tree as the file page (🗃 Vaults › 📁 folder › open safe = this vault), then the groups inside it
-  const back = () => $('#brand').click();
-  const s3node = (icon, label, depth, sel, title) => h('div', {class: 'node' + (sel ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
-      title, onclick: sel ? null : back},
-    h('span', {class: 'caret'}, sel ? '' : '▾'), h('span', {}, icon), h('span', {class: 'name', text: label}),
-    sel ? h('button', {class: 'btn sm', title: 'Close: lock this vault and go back to the vault files (same as Lock)',
-      onclick: ev => { ev.stopPropagation(); lock(); }}, 'Close') : null);
+  // where this vault lives (🗃 Vaults › 📁 folder › this file), shown only: no click here leaves the vault — Lock
+  // first, then the folders work again. Below it, the groups inside the file.
+  const s3node = (icon, label, depth, sel, title) => h('div', {class: 'node here' + (sel ? ' sel' : ''),
+      style: `padding-left:${8 + depth * 14}px`, title},
+    h('span', {class: 'caret'}), h('span', {}, icon), h('span', {class: 'name', text: label}),
+    // the open file is marked, not a second Close next to Lock: leaving is Lock (top bar) or a folder above
+    sel ? h('span', {class: 'opened', title: 'Unlocked in this browser; Lock (top bar) closes it'}, 'Opened') : null);
   const s3 = [h('div', {class: 'pane-title'}, 'Folders'),
-    s3node('🗃', 'Vaults', 0, false, 'All vault files (locks this vault)'),
-    S.folder ? s3node('📁', S.folder, 1, false, 'All vault files (locks this vault)') : null,
+    s3node('🗃', 'Vaults', 0, false, 'Lock the vault to browse the folders'),
+    S.folder ? s3node('📁', S.folder, 1, false, 'Lock the vault to browse the folders') : null,
     s3node(safe(true), `${S.name}.kdbx`, S.folder ? 2 : 1, true, `s3://…/${s3Path(S.name, S.folder)} · unlocked in this browser`)].filter(Boolean);
   $('#tree').replaceChildren(...s3,
     h('div', {class: 'pane-title', style: 'margin-top:10px;border-top:1px solid var(--line);padding-top:10px'}, 'Groups · inside this file', h('span', {class: 'spacer'}),
@@ -1055,6 +1118,13 @@ function renderList(ro) {
       'Nothing was overwritten; your last change exists only in this tab.'),
     h('button', {class: 'btn sm', onclick: downloadLocal}, '⤓ Download my copy'),
     h('button', {class: 'btn sm primary', onclick: reopen}, 'Reopen the latest')) : null;
+  const notices = [
+    S.diff.length && !ro ? h('div', {class: 'banner'},
+      h('span', {}, h('b', {}, 'Not like the template: '), S.diff.map(d => `${d.what} ${d.now} (template: ${d.template})`).join(' · ')),
+      h('button', {class: 'btn sm primary', onclick: applyTemplate}, 'Apply the template')) : null,
+    S.size > WARN_BYTES ? h('div', {class: 'banner'},
+      h('span', {}, h('b', {}, `${size(S.size)}: `), `close to the ${size(MAX_BYTES)} limit — remove attachments, then 🧹 Clean up.`)) : null,
+  ];
   const rows = list.map(e => {
     const f = Vault.fields(e);
     let host = f.url; try { host = new URL(f.url).host || f.url; } catch (x) {}
@@ -1075,7 +1145,7 @@ function renderList(ro) {
       h('th', {}, 'Title'), h('th', {}, 'User name'), h('th', {}, 'URL'), searching ? h('th', {}, 'Group') : null, h('th', {}, 'Modified')),
     rows) : h('div', {class: 'empty'}, searching ? 'No match.' : Vault.inRecycleBin(S.db, S.group) ? 'Nothing in here.' :
       h('div', {}, 'No entries in this group.'));
-  $('#list').replaceChildren(...[head, banner, h('div', {class: 'list-body'}, body)].filter(Boolean));
+  $('#list').replaceChildren(...[head, banner, ...notices, h('div', {class: 'list-body'}, body)].filter(Boolean));
 }
 
 function renderDetail(ro) {
@@ -1174,6 +1244,17 @@ async function moveDialog() {
   S.ticked.clear(); S.entry = null;
   toast(`Moved ${what} to ${to.name || 'the root'}`);
   changed();
+}
+
+async function cleanUp() {
+  if (!(await confirmDlg(`Clean up ${S.name}?`, 'Every entry keeps only its current values; the recycle bin is emptied for good. ' +
+    'Earlier S3 versions of the file still have the old data.', 'Clean up'))) return;
+  Vault.clearHistory(S.db); toast('Cleaned up'); changed();
+}
+async function applyTemplate() {
+  if (!(await confirmDlg(`Apply the template to ${S.name}?`, S.diff.map(d => `${d.what}: ${d.now} → ${d.template}`).join(' · ') +
+    '. History the template does not keep is removed.', 'Apply'))) return;
+  Vault.followTemplate(S.db, S.template); S.diff = []; toast('Template applied'); changed();
 }
 
 async function deleteEntry(e) {

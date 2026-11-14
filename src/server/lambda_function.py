@@ -392,7 +392,7 @@ def put_vault(event, folder, name):
     owner = (_owner(key) if if_match else "") or event["identity"]
     try:
         r = s3.put_object(Bucket=BUCKET, Key=key, Body=data, ContentType="application/octet-stream",
-                          ServerSideEncryption="aws:kms", Metadata={"owner": urllib.parse.quote(owner)}, **cond)
+                          ServerSideEncryption="AES256", Metadata={"owner": urllib.parse.quote(owner)}, **cond)
     except ClientError as e:
         if _code(e) in ("PreconditionFailed", "ConditionalRequestConflict", "412", "409"):
             if not if_match:
@@ -429,7 +429,7 @@ def move_vault(event):
     body = src["Body"].read()
     try:   # the copy first, never over an existing file: if this fails, the original is untouched
         r = s3.put_object(Bucket=BUCKET, Key=dest, Body=body, ContentType="application/octet-stream",
-                          ServerSideEncryption="aws:kms", Metadata=src.get("Metadata") or {}, IfNoneMatch="*")
+                          ServerSideEncryption="AES256", Metadata=src.get("Metadata") or {}, IfNoneMatch="*")
     except ClientError as e:
         if _code(e) in ("PreconditionFailed", "ConditionalRequestConflict", "412", "409"):
             raise Conflict(f"a vault named {name!r} is already in that folder; nothing was moved") from None

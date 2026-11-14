@@ -105,6 +105,23 @@ def test_entries_moved_in_s3keepass(kx, ours, box):
     assert next(e for e in home["entries"] if e["title"] == "github")["password"] == "gh-xyz"
 
 
+def test_clean_up_clears_history_and_the_recycle_bin(kx, ours, box):
+    """Data | Clean up in s3keepass: every entry's history and the recycle bin emptied | KeePassXC finds no history, an empty bin, the rest unchanged"""
+    f, out = box.box("库1.kdbx"), box.box("out.kdbx")
+    ours.create(f, PW, TREE)
+    ours.edit(f, PW, [["editEntry", "工作/github", {"password": "v2"}], ["editEntry", "工作/github", {"password": "v3"}],
+                      ["removeEntry", "库2 (家)/wifi"], ["clearHistory"]], out)
+    theirs = kx.tree(out, PW)
+    assert ours.tree(out, PW) == theirs
+
+    def entries(g):
+        return g["entries"] + [e for x in g["groups"] for e in entries(x)]
+    assert all(e["history"] == 0 for e in entries(theirs))
+    assert not theirs["recycleBin"] or not entries(theirs["recycleBin"])
+    github = next(e for e in entries(theirs) if e["title"] == "github")
+    assert github["password"] == "v3"                                   # the current value is kept
+
+
 def test_groups_deleted_in_s3keepass_go_to_the_recycle_bin(kx, ours, box):
     """Data | delete a group in s3keepass | KeePassXC finds it, with its entries, in the recycle bin"""
     f, out = box.box("库1.kdbx"), box.box("out.kdbx")

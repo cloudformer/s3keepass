@@ -28,15 +28,14 @@ resource "aws_s3_bucket_versioning" "vaults" {
   }
 }
 
-# at rest: SSE-KMS with the AWS-managed key aws/s3 (free; its key policy lets this account's S3 use it,
-# so the Lambda role needs no kms: permission). The vaults are KDBX-encrypted before they get here.
+# at rest: SSE-S3 (AES-256, S3-managed keys, no KMS cost). The vaults are KDBX-encrypted before they get here;
+# files written earlier under SSE-KMS stay readable and become SSE-S3 on their next save.
 resource "aws_s3_bucket_server_side_encryption_configuration" "vaults" {
   bucket = aws_s3_bucket.vaults.id
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "aws:kms"
+      sse_algorithm = "AES256"
     }
-    bucket_key_enabled = true
   }
 }
 
@@ -98,7 +97,7 @@ resource "aws_s3_object" "template" {
   bucket       = aws_s3_bucket.vaults.id
   key          = "config/template.json"
   source       = "${path.module}/template.json"
-  etag         = filemd5("${path.module}/template.json")
+  source_hash  = filemd5("${path.module}/template.json") # not etag: the ETag S3 returns is not always the MD5, so etag drifts
   content_type = "application/json"
 }
 

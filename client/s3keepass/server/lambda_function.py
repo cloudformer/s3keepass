@@ -72,8 +72,10 @@ LOG = "log/"                        # access records: s3://<bucket>/log/<vault k
 MAX_BYTES = 4_718_592               # 4.5 MB: a Function URL takes at most 6 MB per request, base64 included
 
 HERE = os.path.dirname(__file__)
+with open(os.path.join(HERE, "..", "__init__.py"), encoding="utf-8") as f:
+    VERSION = re.search(r'__version__ = "([^"]+)"', f.read()).group(1)   # this package's release, shown on the page
 with open(os.path.join(HERE, "index.html"), encoding="utf-8") as f:
-    INDEX_HTML = f.read()
+    INDEX_HTML = f.read().replace("__VERSION__", VERSION)
 with open(os.path.join(HERE, "base_template.json"), encoding="utf-8") as f:
     BASE_TEMPLATE = json.load(f)   # the safe defaults every deployment starts from
 VENDOR = {}

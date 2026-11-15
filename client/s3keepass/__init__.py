@@ -4,4 +4,4 @@ s3keepass.server is the Lambda (the vault API and the web UI); the Terraform mod
 deploys it from this package. The command line (`s3keepass entry get github` …) comes in 0.2.0.
 """
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"

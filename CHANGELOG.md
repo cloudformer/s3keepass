@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+UI only: the release running is shown at the right end of the status bar (`s3keepass 0.1.3`), read from the
+package itself, so a page tells which version a deployment serves.
+
 ## 0.1.2
 
 **Sign-in: HTTP Basic, Cloudflare Access, or both.** Two settings, each on or off; a request passes when any method

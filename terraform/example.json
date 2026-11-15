@@ -8,8 +8,8 @@
 
   "console": true,
   "function_url_auth": "NONE",
-  "console_auth_username": "frank",
-  "console_auth_password": "CHANGE-ME",
+  "http_auth": { "enabled": true, "username": "frank", "password": "CHANGE-ME" },
+  "cloudflare_auth": { "enabled": false, "team": "myteam", "aud": "CHANGE-ME" },
 
   "bucket": "s3keepass-dev-change-me",
   "keep_versions": 5,

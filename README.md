@@ -46,7 +46,7 @@ password from your variable file); each vault then needs its own master password
 ### 1. Deploy once
 
 ```bash
-cp terraform/example.json terraform/real-s3keepass.json     # set aws_profile, console_auth_username, console_auth_password
+cp terraform/example.json terraform/real-s3keepass.json     # set aws_profile and http_auth (or cloudflare_auth)
 terraform -chdir=terraform init
 terraform -chdir=terraform apply -var-file=real-s3keepass.json
 terraform -chdir=terraform output                      # console_url, bucket
@@ -63,7 +63,7 @@ setting from the state), then `destroy`.
 
 ### 2. Open the URL
 
-Open `console_url`, sign in with `console_auth_username` / `console_auth_password`, create a vault (or upload a `.kdbx` from KeePassXC), and
+Open `console_url`, sign in with the `http_auth` username / password (through Cloudflare Access: already signed in), create a vault (or upload a `.kdbx` from KeePassXC), and
 bookmark the page. On a new device: the same URL, nothing to install. Offline or without the URL: download the
 `.kdbx` and open it in KeePassXC.
 

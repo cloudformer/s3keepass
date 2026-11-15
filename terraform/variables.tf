@@ -44,7 +44,7 @@ variable "console" {
 variable "function_url_auth" {
   description = <<-EOT
     How the Function URL is protected:
-      NONE    = public URL; only console_auth_username/password (HTTP Basic) is checked      <- default
+      NONE    = public URL; the Lambda checks http_auth / cloudflare_auth                    <- default
       AWS_IAM = AWS checks a SigV4 signature + IAM permission first. The browser UI
                 cannot sign requests, so it is unusable in this mode.
   EOT
@@ -57,15 +57,26 @@ variable "function_url_auth" {
   }
 }
 
-variable "console_auth_username" {
-  description = "HTTP Basic user: web UI login AND every API client; still required with console = false"
-  type        = string
+# sign-in: any method that is on lets a request in; at least one must be on (the module checks the fields)
+variable "http_auth" {
+  description = "User + password (HTTP Basic): { enabled, username, password (16+) }"
+  type = object({
+    enabled  = bool
+    username = optional(string, "")
+    password = optional(string, "")
+  })
+  default   = { enabled = false }
+  sensitive = true
 }
 
-variable "console_auth_password" {
-  description = "HTTP Basic password: web UI login AND every API client"
-  type        = string
-  sensitive   = true
+variable "cloudflare_auth" {
+  description = "Cloudflare Access in front of the URL: { enabled, team (<team>.cloudflareaccess.com), aud (the Access application's AUD tag) }"
+  type = object({
+    enabled = bool
+    team    = optional(string, "")
+    aud     = optional(string, "")
+  })
+  default = { enabled = false }
 }
 
 # ---- the vaults' bucket ----

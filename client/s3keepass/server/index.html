@@ -429,6 +429,7 @@ const store = {
   set: (k, v) => { try { v == null ? localStorage.removeItem('s3keepass_' + k) : localStorage.setItem('s3keepass_' + k, v); } catch (e) {} },
 };
 let cred = store.get('cred') || '';
+let viaCloudflare = false;   // a call went through without a password: Cloudflare Access signed this page in
 $('#host').textContent = location.host;
 
 const ts = () => new Date().toTimeString().slice(0, 8);
@@ -454,22 +455,27 @@ function toast(text, bad) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.className = 'toast', 2600);
 }
 
-// every call to the Lambda: Basic auth, 401 -> sign in again, one history line with the server's own time
-// and what it did on S3. raw: the vault's bytes come back (ArrayBuffer + ETag) instead of JSON.
+// every call to the Lambda: Basic auth when signed in that way (through Cloudflare Access its JWT rides along by
+// itself), 401 -> sign in again, one history line with the server's own time and what it did on S3.
+// raw: the vault's bytes come back (ArrayBuffer + ETag) instead of JSON.
 async function call(method, path, opts = {}) {
-  if (!cred && !(await signIn())) throw new Error('not signed in');
   const t0 = performance.now();
   const what = `${method} ${decodeURIComponent(path.replace(/^\/api\//, ''))}`;
   let r;
   try {
     r = await fetch(path, {method, body: opts.body, cache: 'no-store',
-      headers: Object.assign({authorization: 'Basic ' + cred}, opts.headers || {})});
+      headers: Object.assign(cred ? {authorization: 'Basic ' + cred} : {}, opts.headers || {})});
   } catch (e) { log(`${what} · network error: ${e.message}`, 'err'); throw e; }
   if (r.status === 401) {
     cred = ''; store.set('cred', null);
+    if ((await r.json().catch(() => ({}))).http_auth === false) {   // Cloudflare alone: its sign-in has expired
+      toast('Signed out of Cloudflare Access: reload the page to sign in again', true);
+      throw new Error('not signed in');
+    }
     if (await signIn()) return call(method, path, opts);
     throw new Error('not signed in');
   }
+  if (!cred) viaCloudflare = true;
   const ms = Math.round(performance.now() - t0);
   if (opts.raw && r.ok) {
     const bytes = await r.arrayBuffer();
@@ -494,14 +500,19 @@ async function signIn() {
   const r = await ask('Sign in', [
     {name: 'u', label: 'User', required: true, autocomplete: 'username'},
     {name: 'p', label: 'Password', type: 'password', required: true, autocomplete: 'current-password'}],
-    {ok: 'Sign in', note: 'console_auth_username / console_auth_password of this deployment (terraform/real-s3keepass.json). ' +
+    {ok: 'Sign in', note: 'http_auth username / password of this deployment. ' +
                           'Your vaults stay locked: each one needs its own master password.'});
   if (!r) return false;
   cred = btoa(String.fromCharCode(...new TextEncoder().encode(r.u + ':' + r.p)));
   store.set('cred', cred);
   return true;
 }
-$('#signout').addEventListener('click', async () => { await lock(); if (S) return; cred = ''; store.set('cred', null); location.reload(); });
+// signed in with a password: forget it; through Cloudflare Access: its own sign-out
+$('#signout').addEventListener('click', async () => {
+  await lock(); if (S) return;
+  if (viaCloudflare) { location.href = '/cdn-cgi/access/logout'; return; }
+  cred = ''; store.set('cred', null); location.reload();
+});
 
 // ---------------- dialogs: one <dialog> per question, stacked (the generator opens over the entry editor) ----------------
 // fields: {name, label, type: text|password|textarea|checkbox, value, required, hint, generate, meter} or {el}

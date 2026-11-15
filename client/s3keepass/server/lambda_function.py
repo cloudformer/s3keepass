@@ -6,14 +6,18 @@ The Lambda only lists, reads and writes encrypted bytes. Vaults are decrypted an
 The first half (JSON, request body, sign-in, routing, error mapping, timing) is the series' shared shell; the
 routes are in the second half.
 
-Sign-in, AUTH_METHOD:
-    web         HTTP Basic (USER_NAME / PASSWORD); the page and /vendor are public. Identity = the user name.
-    cloudflare  reserved for Cloudflare Access, not built yet: every request is refused (503), never left open.
+Sign-in: two methods, each on or off; a request passes when any method that is on accepts it.
+    HTTP_AUTH=1        HTTP Basic (USER_NAME / PASSWORD). Identity = the user name.
+    CLOUDFLARE_AUTH=1  Cloudflare Access: the Cf-Access-Jwt-Assertion header Cloudflare adds in front of this URL,
+                       an RS256 JWT checked against the team's public keys (CLOUDFLARE_TEAM), its aud
+                       (CLOUDFLARE_AUD), issuer and expiry. Identity = the email in it.
+    The page and /vendor are public while HTTP_AUTH is on (the page asks for the user and password); with Cloudflare
+    alone they need the JWT too. Both off, or a method on without its settings: every request is refused (503).
 
     GET    /                                  web UI (index.html), public
     GET    /vendor/<file>.js                  the vendored crypto libraries, public
     GET    /api/ping                          {"ok": true}
-    GET    /api/me                            {"identity", "auth_method"}: who is signed in
+    GET    /api/me                            {"identity", "auth_method": http | cloudflare}: who is signed in
     GET    /api/tree                          the folders under keepass/ (the top level first) and their vault files
     GET    /api/vaults                        the main folder's vaults (keepass/<name>.kdbx)
     GET    /api/vaults/<name>[?version=<id>]  the encrypted file (ETag header); an older version with ?version
@@ -47,14 +51,18 @@ import os
 import re
 import time
 import urllib.parse
+import urllib.request
 import uuid
 
 import boto3
 from botocore.exceptions import ClientError
 
-AUTH_METHOD = os.environ.get("AUTH_METHOD", "web")   # web | cloudflare (reserved)
+HTTP_AUTH = os.environ.get("HTTP_AUTH", "1") == "1"
 USER = os.environ.get("USER_NAME", "")
 PASSWORD = os.environ.get("PASSWORD", "")
+CLOUDFLARE_AUTH = os.environ.get("CLOUDFLARE_AUTH", "0") == "1"
+CLOUDFLARE_TEAM = os.environ.get("CLOUDFLARE_TEAM", "")   # <team>.cloudflareaccess.com
+CLOUDFLARE_AUD = os.environ.get("CLOUDFLARE_AUD", "")     # the Access application's AUD tag
 CONSOLE = os.environ.get("CONSOLE", "1") == "1"
 BUCKET = os.environ.get("BUCKET", "")
 PREFIX = "keepass/"                 # fixed layout: s3://<bucket>/keepass/[<folder>/]<name>.kdbx
@@ -144,10 +152,19 @@ def _body(event):
     return data
 
 
+def _auth_problem():
+    """Why this deployment's sign-in settings cannot work, or None. Checked on every request: fail closed."""
+    if not HTTP_AUTH and not CLOUDFLARE_AUTH:
+        return "no sign-in method is on: turn on http_auth or cloudflare_auth"
+    if HTTP_AUTH and not (USER and PASSWORD):
+        return "http_auth is on without a username and password"
+    if CLOUDFLARE_AUTH and not (re.fullmatch(r"[a-z0-9-]+", CLOUDFLARE_TEAM) and CLOUDFLARE_AUD):
+        return "cloudflare_auth is on without a team and aud"
+    return None
+
+
 def _authed(event):
-    """HTTP Basic, constant-time compare. No USER_NAME configured = no auth (do not do that)."""
-    if not USER:
-        return True
+    """HTTP Basic, constant-time compare."""
     auth = (event.get("headers") or {}).get("authorization", "")
     if not auth.lower().startswith("basic "):
         return False
@@ -158,9 +175,75 @@ def _authed(event):
     return hmac.compare_digest(user.encode(), USER.encode()) & hmac.compare_digest(password.encode(), PASSWORD.encode())
 
 
+def _b64url(s):
+    return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
+
+
+_CF_KEYS = {}        # kid -> (n, e): the team's RSA public keys, kept while the Lambda is warm
+_CF_FETCHED = [0.0]  # when they were last fetched
+
+
+def _cf_keys(kid):
+    """The team's key for kid; an unknown kid fetches the keys again (Cloudflare rotates them), at most once a minute."""
+    if kid not in _CF_KEYS and time.time() - _CF_FETCHED[0] > 60:
+        _CF_FETCHED[0] = time.time()
+        url = f"https://{CLOUDFLARE_TEAM}.cloudflareaccess.com/cdn-cgi/access/certs"
+        with urllib.request.urlopen(url, timeout=5) as r:
+            keys = json.load(r)["keys"]
+        _CF_KEYS.clear()
+        _CF_KEYS.update({k["kid"]: (int.from_bytes(_b64url(k["n"]), "big"), int.from_bytes(_b64url(k["e"]), "big"))
+                         for k in keys if k.get("kty") == "RSA"})
+    return _CF_KEYS.get(kid)
+
+
+_SHA256_DIGEST_INFO = bytes.fromhex("3031300d060960864801650304020105000420")
+
+
+def _rs256_ok(key, signed, sig):
+    """RSASSA-PKCS1-v1_5 with SHA-256 (RFC 8017 8.2.2): the signature, raised to e mod n, must be exactly the
+    padded digest of what was signed."""
+    n, e = key
+    k = (n.bit_length() + 7) // 8
+    s = int.from_bytes(sig, "big")
+    if len(sig) != k or s >= n:
+        return False
+    t = _SHA256_DIGEST_INFO + hashlib.sha256(signed).digest()
+    return hmac.compare_digest(pow(s, e, n).to_bytes(k, "big"), b"\x00\x01" + b"\xff" * (k - 3 - len(t)) + b"\x00" + t)
+
+
+def _cloudflare(event):
+    """The email in a valid Cloudflare Access JWT, or None."""
+    token = (event.get("headers") or {}).get("cf-access-jwt-assertion", "")
+    try:
+        head64, claims64, sig64 = token.split(".")
+        head, claims = json.loads(_b64url(head64)), json.loads(_b64url(claims64))
+        key = head.get("alg") == "RS256" and _cf_keys(head.get("kid"))
+        if not key or not _rs256_ok(key, f"{head64}.{claims64}".encode(), _b64url(sig64)):
+            return None
+    except (ValueError, KeyError, TypeError, AttributeError, OSError) as e:
+        if isinstance(e, OSError):
+            print(json.dumps({"event": "cloudflare_keys_unavailable", "error": str(e)}))
+        return None
+    aud = claims.get("aud")
+    now = time.time()
+    if (CLOUDFLARE_AUD not in (aud if isinstance(aud, list) else [aud])
+            or claims.get("iss") != f"https://{CLOUDFLARE_TEAM}.cloudflareaccess.com"
+            or not isinstance(claims.get("exp"), (int, float)) or claims["exp"] <= now
+            or (isinstance(claims.get("nbf"), (int, float)) and claims["nbf"] > now + 60)):
+        return None
+    return str(claims.get("email") or claims.get("common_name") or claims.get("sub") or "cloudflare")
+
+
 def _identity(event):
-    """Who is calling (web: the Basic user), or None when not signed in. Handlers read it as event["identity"]."""
-    return (USER or "anonymous") if _authed(event) else None
+    """(who, method) for the first method that is on and accepts the request, or None. Handlers read
+    event["identity"] (the Basic user, or the Cloudflare email) and event["auth_method"]."""
+    if CLOUDFLARE_AUTH:
+        who = _cloudflare(event)
+        if who:
+            return who, "cloudflare"
+    if HTTP_AUTH and _authed(event):
+        return USER, "http"
+    return None
 
 
 ERRORS = [(BadRequest, 400), (Forbidden, 403), (NotFound, 404), (Stale, 409), (Conflict, 412), (TooLarge, 413),
@@ -170,8 +253,12 @@ ERRORS = [(BadRequest, 400), (Forbidden, 403), (NotFound, 404), (Stale, 409), (C
 def lambda_handler(event, context):
     http = (event.get("requestContext") or {}).get("http") or {}
     method, path = http.get("method", "GET"), urllib.parse.unquote(event.get("rawPath", "/"))
-    if AUTH_METHOD != "web":   # fail closed: an unbuilt sign-in must not leave the page or the API open
-        return _json(503, {"error": f"auth_method {AUTH_METHOD!r} is not available yet; deploy with auth_method = web"})
+    problem = _auth_problem()
+    if problem:   # fail closed: a sign-in that cannot work must not leave the page or the API open
+        return _json(503, {"error": problem})
+    signed = _identity(event)
+    if signed is None and not HTTP_AUTH:   # Cloudflare alone: nothing is served without its JWT, the page included
+        return _json(401, {"error": "sign in through Cloudflare Access", "http_auth": False})
     if CONSOLE and method == "GET" and path in ("/", "/index.html"):
         return {"statusCode": 200, "body": INDEX_HTML,
                 "headers": dict(PAGE_HEADERS, **{"content-type": "text/html; charset=utf-8", "cache-control": "no-cache"})}
@@ -179,9 +266,9 @@ def lambda_handler(event, context):
         return {"statusCode": 200, "body": VENDOR[path[8:]],
                 "headers": {"content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=86400",
                             "x-content-type-options": "nosniff"}}
-    event["identity"] = _identity(event)
-    if event["identity"] is None:
-        return _json(401, {"error": "bad credentials"})
+    if signed is None:
+        return _json(401, {"error": "bad credentials", "http_auth": True})
+    event["identity"], event["auth_method"] = signed
     t0 = time.perf_counter()
     status, data = 404, {"error": f"no route: {method} {path}"}
     try:
@@ -258,7 +345,7 @@ def ping(event):
 
 
 def me(event):
-    return {"identity": event["identity"], "auth_method": AUTH_METHOD}
+    return {"identity": event["identity"], "auth_method": event["auth_method"]}
 
 
 def _files(prefix):

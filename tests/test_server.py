@@ -60,18 +60,182 @@ def test_ui_and_vendor_are_public_and_the_api_needs_auth(fake_s3):
 
 
 def test_me_is_the_signed_in_user(fake_s3):
-    """Task 1: auth_method = web — the identity is the HTTP Basic user (owner and access records use it)."""
+    """http_auth: the identity is the HTTP Basic user (owner and access records use it)."""
     status, out, _ = call("GET", "/api/me")
-    assert status == 200 and out["identity"] == "admin" and out["auth_method"] == "web"
+    assert status == 200 and out["identity"] == "admin" and out["auth_method"] == "http"
     assert call("GET", "/api/me", auth=None)[0] == 401
 
 
-def test_cloudflare_mode_is_closed_until_it_exists(fake_s3, monkeypatch):
-    """Task 1: auth_method = cloudflare is reserved, not built yet — it fails closed, never falls back to open."""
-    monkeypatch.setattr(lf, "AUTH_METHOD", "cloudflare")
+# ---- cloudflare_auth: an RS256 JWT from Cloudflare Access, checked against the team's keys ----
+
+TEAM, AUD = "myteam", "aud-of-the-app"
+
+
+def _prime(bits, rng):
+    def probable(n):
+        d, r = n - 1, 0
+        while d % 2 == 0:
+            d, r = d // 2, r + 1
+        for _ in range(20):
+            x = pow(rng.randrange(2, n - 1), d, n)
+            if x in (1, n - 1):
+                continue
+            for _ in range(r - 1):
+                x = pow(x, 2, n)
+                if x == n - 1:
+                    break
+            else:
+                return False
+        return True
+    while True:
+        n = rng.getrandbits(bits) | (1 << bits - 1) | 1
+        if all(n % p for p in (3, 5, 7, 11, 13, 17, 19, 23)) and probable(n):
+            return n
+
+
+def rsa_key(seed):
+    """A 1024-bit RSA key in pure Python (CI has no crypto library): (n, e, d)."""
+    import random
+    rng, e = random.Random(seed), 65537
+    while True:
+        p, q = _prime(512, rng), _prime(512, rng)
+        phi = (p - 1) * (q - 1)
+        if p != q and phi % e:
+            return p * q, e, pow(e, -1, phi)
+
+
+def b64u(b):
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def jwt(key, kid="k1", **claims):
+    """RS256 (RSASSA-PKCS1-v1_5, SHA-256), the way Cloudflare Access signs."""
+    import time
+    n, e, d = key
+    body = dict({"aud": [AUD], "iss": f"https://{TEAM}.cloudflareaccess.com", "email": "frank@example.com",
+                 "exp": int(time.time()) + 600, "iat": int(time.time())}, **claims)
+    signed = b64u(json.dumps({"alg": "RS256", "kid": kid}).encode()) + "." + b64u(json.dumps(body).encode())
+    k = (n.bit_length() + 7) // 8
+    t = bytes.fromhex("3031300d060960864801650304020105000420") + hashlib.sha256(signed.encode()).digest()
+    em = b"\x00\x01" + b"\xff" * (k - 3 - len(t)) + b"\x00" + t
+    return signed + "." + b64u(pow(int.from_bytes(em, "big"), d, n).to_bytes(k, "big"))
+
+
+KEY, OTHER = rsa_key(1), rsa_key(2)
+
+
+@pytest.fixture
+def cloudflare(monkeypatch):
+    """cloudflare_auth on with the team's key KEY (kid k1); http_auth stays as the test sets it."""
+    monkeypatch.setattr(lf, "CLOUDFLARE_AUTH", True)
+    monkeypatch.setattr(lf, "CLOUDFLARE_TEAM", TEAM)
+    monkeypatch.setattr(lf, "CLOUDFLARE_AUD", AUD)
+    monkeypatch.setattr(lf, "_CF_KEYS", {"k1": KEY[:2]})
+    monkeypatch.setattr(lf, "_CF_FETCHED", [9e18])   # no fetch: the keys above are the team's
+
+
+def cf(token):
+    return {"cf-access-jwt-assertion": token}
+
+
+def test_cloudflare_jwt_signs_in_with_its_email(fake_s3, cloudflare):
+    status, out, _ = call("GET", "/api/me", auth=None, headers=cf(jwt(KEY)))
+    assert status == 200 and out == {"identity": "frank@example.com", "auth_method": "cloudflare", "ms": out["ms"]}
+
+
+@pytest.mark.parametrize("token", [
+    jwt(OTHER),                                          # signed by another key
+    jwt(OTHER, kid="k9"),                                # a key the team does not have
+    jwt(KEY, aud=["another-app"]),                       # another Access application
+    jwt(KEY, iss="https://otherteam.cloudflareaccess.com"),
+    jwt(KEY, exp=1),                                     # expired
+    jwt(KEY, nbf=4102444800),                            # not valid yet (2100)
+    jwt(KEY)[:-4] + "AAAA",                              # signature changed
+    ".".join([jwt(KEY).split(".")[0], jwt(KEY, email="mallory@example.com").split(".")[1],
+              jwt(KEY).split(".")[2]]),                  # claims changed after signing
+    "not.a.jwt", "", "a.b",
+])
+def test_cloudflare_rejects_a_bad_jwt(fake_s3, cloudflare, monkeypatch, token):
+    monkeypatch.setattr(lf, "HTTP_AUTH", False)
+    assert call("GET", "/api/me", auth=None, headers=cf(token))[0] == 401
+
+
+def test_cloudflare_rejects_alg_none(fake_s3, cloudflare, monkeypatch):
+    """A token that claims no signature is never accepted."""
+    monkeypatch.setattr(lf, "HTTP_AUTH", False)
+    head, claims, _ = jwt(KEY).split(".")
+    none = b64u(json.dumps({"alg": "none", "kid": "k1"}).encode()) + "." + claims + "."
+    assert call("GET", "/api/me", auth=None, headers=cf(none))[0] == 401
+
+
+def test_cloudflare_alone_guards_the_page_too(fake_s3, cloudflare, monkeypatch):
+    """With http_auth off nothing is served without the JWT, the page included; a password does not help."""
+    monkeypatch.setattr(lf, "HTTP_AUTH", False)
+    for path in ("/", "/vendor/kdbxweb.min.js", "/api/ping", "/api/vaults"):
+        status, out, _ = call("GET", path, auth=None)
+        assert status == 401 and out["http_auth"] is False, path
+    assert call("GET", "/api/vaults")[0] == 401                       # the Basic user is not a way in now
+    assert call("GET", "/", auth=None, headers=cf(jwt(KEY)))[0] == 200
+    assert call("GET", "/api/vaults", auth=None, headers=cf(jwt(KEY)))[0] == 200
+
+
+def test_either_method_passes_when_both_are_on(fake_s3, cloudflare):
+    assert call("GET", "/api/me", auth=None, headers=cf(jwt(KEY)))[1]["auth_method"] == "cloudflare"
+    assert call("GET", "/api/me")[1]["auth_method"] == "http"
+    status, out, _ = call("GET", "/api/me", auth=None, headers=cf(jwt(OTHER)))
+    assert status == 401 and out["http_auth"] is True                 # the page then asks for the password
+    assert call("GET", "/", auth=None)[0] == 200                       # http_auth on: the page is public
+
+
+def test_unknown_kid_fetches_the_keys_at_most_once_a_minute(fake_s3, cloudflare, monkeypatch):
+    """Cloudflare rotates its keys: a new kid fetches them again, but a flood of unknown kids fetches once."""
+    import io
+    fetched = []
+
+    def urlopen(url, timeout):
+        fetched.append(url)
+        n, e, _ = OTHER
+        doc = {"keys": [{"kty": "RSA", "kid": "k2", "n": b64u(n.to_bytes(128, "big")), "e": b64u(e.to_bytes(3, "big"))}]}
+        return io.BytesIO(json.dumps(doc).encode())
+
+    monkeypatch.setattr(lf.urllib.request, "urlopen", urlopen)
+    monkeypatch.setattr(lf, "_CF_FETCHED", [0.0])
+    monkeypatch.setattr(lf, "HTTP_AUTH", False)
+    assert call("GET", "/api/me", auth=None, headers=cf(jwt(OTHER, kid="k2")))[0] == 200
+    assert fetched == [f"https://{TEAM}.cloudflareaccess.com/cdn-cgi/access/certs"]
+    for _ in range(3):
+        assert call("GET", "/api/me", auth=None, headers=cf(jwt(OTHER, kid="k3")))[0] == 401
+    assert len(fetched) == 1
+
+
+def test_cloudflare_matches_a_real_crypto_library():
+    """Our RS256 check against signatures made by the cryptography package (skipped where it is not installed)."""
+    crypto = pytest.importorskip("cryptography.hazmat.primitives.asymmetric.rsa")
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.asymmetric import padding
+    key = crypto.generate_private_key(public_exponent=65537, key_size=2048)
+    pub = key.public_key().public_numbers()
+    msg = b"header.claims"
+    sig = key.sign(msg, padding.PKCS1v15(), hashes.SHA256())
+    assert lf._rs256_ok((pub.n, pub.e), msg, sig)
+    assert not lf._rs256_ok((pub.n, pub.e), msg + b"x", sig)
+
+
+@pytest.mark.parametrize("settings, problem", [
+    ({"HTTP_AUTH": False, "CLOUDFLARE_AUTH": False}, "no sign-in method"),
+    ({"USER": ""}, "http_auth is on without"),
+    ({"PASSWORD": ""}, "http_auth is on without"),
+    ({"CLOUDFLARE_AUTH": True, "CLOUDFLARE_TEAM": "", "CLOUDFLARE_AUD": AUD}, "cloudflare_auth is on without"),
+    ({"CLOUDFLARE_AUTH": True, "CLOUDFLARE_TEAM": TEAM, "CLOUDFLARE_AUD": ""}, "cloudflare_auth is on without"),
+    ({"CLOUDFLARE_AUTH": True, "CLOUDFLARE_TEAM": "evil.com/x", "CLOUDFLARE_AUD": AUD}, "cloudflare_auth is on without"),
+])
+def test_sign_in_that_cannot_work_fails_closed(fake_s3, monkeypatch, settings, problem):
+    """A method on without its settings, or none on: every request is refused (503), never left open."""
+    for k, v in settings.items():
+        monkeypatch.setattr(lf, k, v)
     for path in ("/", "/api/ping", "/api/me", "/api/vaults"):
-        status, out, _ = call("GET", path)
-        assert status == 503 and "cloudflare" in out["error"], path
+        status, out, _ = call("GET", path, auth=None)
+        assert status == 503 and problem in out["error"], path
 
 
 def test_csp_runs_only_this_pages_scripts():
@@ -263,7 +427,7 @@ def test_tree_lists_folders_and_files(fake_s3):
     assert [f["name"] for f in out["folders"][1]["files"]] == ["b"]
 
 
-# ---- task 3: owner = who created the vault (web: the user; cloudflare: the email) ----
+# ---- task 3: owner = who created the vault (http_auth: the user; cloudflare_auth: the email) ----
 
 def as_user(monkeypatch, user):
     monkeypatch.setattr(lf, "USER", user)

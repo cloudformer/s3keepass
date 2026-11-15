@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.2
+
+**Sign-in: HTTP Basic, Cloudflare Access, or both.** Two settings, each on or off; a request passes when any method
+that is on accepts it. Deploy with the module `cloudformer/infra/aws//modules/s3keepass` 0.2.0 (`http_auth` /
+`cloudflare_auth`).
+
+- `HTTP_AUTH` (default on): HTTP Basic with `USER_NAME` / `PASSWORD`, as before.
+- `CLOUDFLARE_AUTH` (default off) with `CLOUDFLARE_TEAM` / `CLOUDFLARE_AUD`: the `Cf-Access-Jwt-Assertion` header
+  Cloudflare Access adds, an RS256 JWT checked against the team's public keys (fetched from
+  `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`, kept while the Lambda is warm, fetched again for an
+  unknown key at most once a minute), its `aud`, issuer and expiry. The identity — owner and access records — is
+  the email in it. Pure Python, no new dependency.
+- With Cloudflare alone the page and `/vendor` need the JWT too, so the Function URL opened directly shows nothing.
+- Fails closed: both off, HTTP Basic on without a user and password (it used to mean no sign-in at all), or
+  Cloudflare on without a team and aud — every request is 503 with what to fix.
+- `AUTH_METHOD` is gone; `GET /api/me` returns `auth_method` `http` or `cloudflare` (how this request signed in).
+- UI: requests go out without a password first, so through Cloudflare the page opens signed in; the password
+  dialog comes only on a 401 while HTTP Basic is on. Sign out through Cloudflare goes to its own logout.
+
 ## 0.1.1
 
 **The Lambda ships in the pip package.** `src/server/` moved to `client/s3keepass/server/` (handler

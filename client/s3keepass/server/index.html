@@ -240,6 +240,12 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
     margin: 0 -16px 12px; padding: 8px 16px; background: inherit; border-bottom: 1px solid var(--line); }
   .m-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .list-head { position: sticky; top: 0; z-index: 3; background: var(--panel); }
+  /* inside a vault one bar stays on screen: ‹ Back (one level up) and 🔒 Lock; the panes' own heads step aside */
+  #vnav { display: none !important; }
+  body.in-vault #vnav { display: flex !important; align-items: center; gap: 10px; padding: 8px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  #vnav .m-title { flex: 1; text-align: center; }
+  body.in-vault .m-head, body.in-vault .m-nav, body.in-vault .list-actions .btn.lock { display: none !important; }
   .field .val { font-size: 16px; }
   .field .icon-btn { min-width: 44px; min-height: 44px; font-size: 20px; }
   .d-actions .btn { flex: 1; justify-content: center; padding: 12px; font-size: 16px; }
@@ -265,6 +271,10 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
   <button class="tb" id="signout" title="Forget this deployment's sign-in (HTTP Basic) on this browser">Sign out</button>
 </header>
 
+<nav class="m-only" id="vnav">
+  <button class="btn" id="vback">‹ Back</button><span class="m-title" id="vtitle"></span>
+  <button class="btn lock" id="vlock">🔒 Lock</button>
+</nav>
 <main id="home">
   <aside class="pane tree" id="ftree"></aside>
   <section class="pane" id="flist"></section>
@@ -762,7 +772,16 @@ function crumbs(...parts) {
 
 // ---------------- vault files: folders | files | file — the same layout as an open vault ----------------
 // phone: which pane is on screen (tree | list | detail); a computer shows all three and ignores it
-const pane = p => { document.body.dataset.pane = p; };
+const pane = p => { document.body.dataset.pane = p; renderVnav(); };
+// phone, inside a vault: Back goes one level up (entry › group's entries › groups); the groups are the top, no Back
+const UP = {detail: 'list', list: 'tree'};
+function renderVnav() {
+  if (!S) return;
+  const p = document.body.dataset.pane;
+  $('#vback').hidden = !UP[p];
+  $('#vtitle').textContent = p === 'tree' ? `${S.name}.kdbx` : p === 'detail' && S.entry ? Vault.fields(S.entry).title || '(no title)'
+    : S.search.trim() ? 'Search' : S.group.name || S.name;
+}
 pane('list');
 // the head of a phone pane: ‹ Back and what the pane shows; it stays at the top while the pane scrolls
 const backBtn = (to, title = '') => h('div', {class: 'm-only m-head'},
@@ -1083,7 +1102,7 @@ function openDb({name, folder = '', db, etag, size = 0}) {
   S.open.add(S.group.uuid.id);
   $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false;
   document.body.classList.add('in-vault');
-  pane('list');
+  pane('tree');
   $('#mode').className = 'mode open'; $('#mode').textContent = `🔓 Inside ${name}.kdbx`;
   $('#signout').hidden = true;   // inside a vault the way out is Lock; Sign out is on the vault-file list only
   $('#search').value = '';
@@ -1107,6 +1126,8 @@ async function lock() {
   showHome();
 }
 $('#brand').addEventListener('click', () => S ? lock() : showHome());
+$('#vback').addEventListener('click', () => { const up = UP[document.body.dataset.pane]; if (up) pane(up); });
+$('#vlock').addEventListener('click', lock);
 
 let lastActive = Date.now();
 for (const ev of ['pointerdown', 'keydown', 'wheel', 'pointermove']) addEventListener(ev, () => lastActive = Date.now(), {passive: true});
@@ -1183,7 +1204,7 @@ function renderVault() {
     {icon: '🧹', label: 'Clean up', title: 'Empty every entry\'s history and the recycle bin, then save (the file shrinks)', disabled: ro, do: cleanUp},
     {icon: '⚙', label: 'Master key', title: 'Change the master password and key file', disabled: ro, do: changeMaster},
   ]);
-  renderTree(ro); renderList(ro); renderDetail(ro); renderSaveState();
+  renderTree(ro); renderList(ro); renderDetail(ro); renderSaveState(); renderVnav();
 }
 
 function renderTree(ro) {

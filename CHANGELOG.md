@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.7
+
+UI only, phones (a computer is unchanged): an unlocked vault opens on its groups (its top level often has no entries
+of its own), and one bar stays on screen inside it — ‹ Back (one level up: entry › entries › groups) and 🔒 Lock —
+instead of each pane's own Back and a Lock at the far end of the scrolling button row.
+
 ## 0.1.6
 
 UI only:

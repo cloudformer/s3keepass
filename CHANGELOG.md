@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.5
+
+UI only: inside an open vault the next step is highlighted too — nothing selected: New entry, New group; an
+entry selected: Edit. Entries keep every action (add, edit, move, delete) on a computer and a phone.
+
 ## 0.1.4
 
 UI only:

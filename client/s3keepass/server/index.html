@@ -1165,9 +1165,10 @@ function renderList(ro) {
       h('span', {class: 'title', text: searching ? `Search: ${S.search}` : groupPath(S.group).slice(1).join(' / ') || S.group.name}),
       h('span', {class: 'muted'}, `${list.length} ${list.length === 1 ? 'entry' : 'entries'}`)),
     actionRow([
-      {icon: '＋', label: 'New entry', title: 'New entry in this group', primary: true, disabled: ro || inBin, do: () => entryDialog(null)},
-      {icon: '＋', label: 'New group', title: 'New group inside this group', primary: true, disabled: ro || inBin, do: () => groupDialog(null)},
-      {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
+      // highlighted: what comes next — nothing selected: add; an entry selected: Edit it
+      {icon: '＋', label: 'New entry', title: 'New entry in this group', primary: !S.entry, disabled: ro || inBin, do: () => entryDialog(null)},
+      {icon: '＋', label: 'New group', title: 'New group inside this group', primary: !S.entry, disabled: ro || inBin, do: () => groupDialog(null)},
+      {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', primary: !!S.entry, disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
       {icon: '⇢', label: 'Move to…', title: 'Move the ticked entries (or the selected one) to another group', disabled: ro || !movable().length, do: moveDialog},
       {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)},
       {icon: '🔒', label: `Lock ${S.name}`, cls: 'lock', title: 'Lock (⌘L): forget the decrypted vault in this tab; also after 5 minutes idle', do: lock},

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.4
+
+UI only:
+- **Phones** (≤ 640px): one pane at a time, like an app — vault files › file › open vault › entries › entry — with
+  ‹ Back and ☰ Folders / ☰ Groups; lists become cards; larger copy / reveal buttons; dialogs open as a bottom sheet;
+  16px inputs (no iOS zoom on focus). A computer's three-pane layout is unchanged.
+- **Vault-file buttons**: the next step is highlighted — nothing selected: New vault, New folder, Upload .kdbx; a
+  file selected: Open. Delete stays visible but disabled: a vault file is deleted in S3, not from the page.
+
 ## 0.1.3
 
 UI only: the release running is shown at the right end of the status bar (`s3keepass 0.1.3`), read from the

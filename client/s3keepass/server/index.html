@@ -203,11 +203,48 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
   #vault, #home { grid-template-columns: 200px minmax(0, 1fr); }
   #detail, #fdetail { grid-column: 1 / -1; border-top: 1px solid var(--line); max-height: 45vh; }
 }
+.m-only { display: none !important; }
+/* phone: one pane at a time (folders/groups › list › details), like an app; ‹ Back and ☰ move between them */
 @media (max-width: 640px) {
-  #vault, #home { grid-template-columns: 1fr; overflow: auto; }
-  #tree, #ftree { max-height: 30vh; border-right: none; border-bottom: 1px solid var(--line); }
-  .search { width: 100%; order: 10; }
+  .m-only { display: inline-flex !important; }
+  body { font-size: 15px; }
+  .bar { gap: 6px; padding: 6px 10px; min-height: 48px; }
+  .crumbs, #host, .bar > .sep { display: none; }
+  .search { width: 100%; order: 10; padding: 9px 12px; }
+  .tb { padding: 8px 10px; font-size: 17px; }
   .tb .lbl { display: none; }
+  input, textarea, select { font-size: 16px !important; }   /* below 16px iOS zooms the page on focus */
+  #vault, #home { display: flex; flex-direction: column; box-shadow: none; }
+  #vault > .pane, #home > .pane { display: none; flex: 1; border: none; max-height: none; }
+  body[data-pane=tree] #tree, body[data-pane=tree] #ftree,
+  body[data-pane=detail] #detail, body[data-pane=detail] #fdetail { display: block; }
+  body[data-pane=list] #list, body[data-pane=list] #flist { display: flex; }
+  .node { padding-top: 11px; padding-bottom: 11px; font-size: 16px; }
+  .pane-title { padding-top: 6px; }
+  /* tables become one card per row: the name large, the rest on a second line */
+  .list-body table, .list-body tbody, .list-body tr, .list-body td { display: block; }
+  .list-body tr:not(.row) { display: none; }
+  .list-body tr.row { padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .list-body td { border: none; padding: 0; max-width: none; white-space: normal; background: none !important; }
+  .list-body td.tick { display: none; }
+  .list-body td.t { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
+  .list-body td:not(.t):not(.tick) { display: inline-block; margin-right: 12px; font-size: 13px; color: var(--muted); }
+  .list-body tr.row.sel { background: var(--accent-bg); }
+  .list-head { padding: 10px 12px; }
+  .list-actions { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+  .list-actions .btn.sm { padding: 8px 12px; font-size: 14px; flex: none; }
+  .m-nav { padding: 8px 12px; font-size: 15px; }
+  #detail, #fdetail, #tree, #ftree { padding: 12px 16px 24px; }
+  .back { margin-bottom: 14px; }
+  .field .val { font-size: 16px; }
+  .field .icon-btn { min-width: 44px; min-height: 44px; font-size: 20px; }
+  .d-actions .btn { flex: 1; justify-content: center; padding: 12px; font-size: 16px; }
+  /* dialogs: a sheet from the bottom, full width */
+  dialog, dialog.wide { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: 16px 16px 0 0; max-height: 92vh;
+    padding-bottom: calc(22px + env(safe-area-inset-bottom)); }
+  .gen-grid { grid-template-columns: 1fr; }
+  .dlg-actions .btn { padding: 11px 16px; font-size: 16px; }
+  .status { padding-bottom: env(safe-area-inset-bottom); }
 }
 </style>
 </head>
@@ -714,10 +751,17 @@ function crumbs(...parts) {
 }
 
 // ---------------- vault files: folders | files | file — the same layout as an open vault ----------------
+// phone: which pane is on screen (tree | list | detail); a computer shows all three and ignores it
+const pane = p => { document.body.dataset.pane = p; };
+pane('list');
+const backBtn = to => h('button', {class: 'btn m-only back', onclick: () => pane(to)}, '‹ Back');
+const navBtn = (label, to) => h('button', {class: 'btn m-only m-nav', onclick: () => pane(to)}, label);
+
 let F = {folder: '', file: null, ticked: new Set(), folders: [], closed: new Set()};   // the file page: selected folder, file, ticked file names, folded folders
 
 async function showHome() {
   $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true;
+  if (document.body.dataset.pane !== 'detail' || !F.file) pane('list');
   document.body.classList.remove('in-vault');
   $('#mode').className = 'mode files'; $('#mode').textContent = '🗂 Vault files';
   $('#signout').hidden = false;
@@ -738,14 +782,14 @@ function renderHome() {
   // left: S3 folders and the vault files in each, like a file explorer: folders first, then files; ▾ / ▸ folds
   const pick = f => { if (f.name !== F.folder) { F.folder = f.name; F.ticked.clear(); vaults = f.files; } };
   const node = (f, depth) => h('div', {class: 'node' + (f.name === F.folder && !v ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
-      onclick: () => { pick(f); F.file = null; renderHome(); }},
+      onclick: () => { pick(f); F.file = null; renderHome(); pane('list'); }},
     h('span', {class: 'caret', onclick: ev => { ev.stopPropagation(); F.closed.has(f.name) ? F.closed.delete(f.name) : F.closed.add(f.name); renderHome(); }},
       F.closed.has(f.name) ? '▸' : '▾'),
     h('span', {}, depth ? '📁' : '🗃'),
     h('span', {class: 'name', text: f.name || 'Vaults'}), h('span', {class: 'count'}, f.files.length || ''));
   const fileNode = (f, x, depth) => h('div', {class: 'node' + (v && f.name === F.folder && x.name === v.name ? ' sel' : ''),
       style: `padding-left:${8 + depth * 14}px`, title: x.path,
-      onclick: () => { pick(f); F.file = x; renderHome(); }, ondblclick: () => unlock(x)},
+      onclick: () => { pick(f); F.file = x; renderHome(); pane('detail'); }, ondblclick: () => unlock(x)},
     h('span', {class: 'caret'}), safe(false), h('span', {class: 'name', text: `${x.name}.kdbx`}));
   const [root, ...subs] = F.folders, items = [node(root, 0)];
   if (!F.closed.has(root.name)) {
@@ -755,12 +799,12 @@ function renderHome() {
     }
     items.push(...root.files.map(x => fileNode(root, x, 1)));
   }
-  $('#ftree').replaceChildren(h('div', {class: 'pane-title'}, 'Folders'), ...items);
+  $('#ftree').replaceChildren(backBtn('list'), h('div', {class: 'pane-title'}, 'Folders'), ...items);
   // middle: the vault files in the folder
   const unlockMark = u => !u ? '' : `${u.ok ? '✓' : '✗'} ${when(u.at)}`;
   for (const n of [...F.ticked]) if (!files.some(x => x.name === n)) F.ticked.delete(n);
   const rows = files.map(x => h('tr', {class: 'row' + (v && x.name === v.name ? ' sel' : ''),
-      onclick: () => { F.file = x; renderHome(); }, ondblclick: () => unlock(x)},
+      onclick: () => { F.file = x; renderHome(); pane('detail'); }, ondblclick: () => unlock(x)},
     h('td', {class: 'tick'}, h('input', {type: 'checkbox', checked: F.ticked.has(x.name), onclick: ev => ev.stopPropagation(),
       onchange: ev => { ev.target.checked ? F.ticked.add(x.name) : F.ticked.delete(x.name); renderHome(); }})),
     h('td', {class: 't'}, safe(false), ' ', `${x.name}.kdbx`), h('td', {class: 'muted'}, x.owner || '—'),
@@ -768,17 +812,18 @@ function renderHome() {
     h('td', {class: 'muted'}, unlockMark(x.last_unlock))));
   $('#flist').replaceChildren(
     h('div', {class: 'list-head'},
-      h('div', {class: 'list-title'}, h('span', {class: 'title', text: F.folder ? `📁 ${F.folder}` : 'Vaults'}),
+      h('div', {class: 'list-title'}, navBtn('☰ Folders', 'tree'), h('span', {class: 'title', text: F.folder ? `📁 ${F.folder}` : 'Vaults'}),
         h('span', {class: 'muted'}, `${files.length} vault ${files.length === 1 ? 'file' : 'files'}`)),
       actionRow([
-        {icon: '＋', label: 'New vault', title: 'New vault in this folder', primary: true, do: newVault},
-        {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file to this folder', primary: true, do: () => $('#file').click()},
-        {icon: '📁', label: 'New folder', title: 'A folder for sorting vaults; it stays once a vault is saved in it', primary: true, do: newFolder},
-        {icon: '🔓', label: 'Open', title: 'Unlock the vault (double-click)', disabled: !v, do: () => unlock(v)},
+        // highlighted: what comes next — nothing selected: create / add a file; a file selected: Open it
+        {icon: '＋', label: 'New vault', title: 'New vault in this folder', primary: !v, do: newVault},
+        {icon: '📁', label: 'New folder', title: 'A folder for sorting vaults; it stays once a vault is saved in it', primary: !v, do: newFolder},
+        {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file to this folder', primary: !v, do: () => $('#file').click()},
+        {icon: '🔓', label: 'Open', title: 'Unlock the vault (double-click)', primary: !!v, disabled: !v, do: () => unlock(v)},
         {icon: '🕘', label: 'Versions', disabled: !v, do: () => versionsDialog(v)},
         {icon: '⇢', label: 'Move to…', title: 'Move the ticked vault files (or the selected one) to another folder',
          disabled: !movableFiles().length, do: moveFilesDialog},
-        {icon: '🗑', label: 'Delete', disabled: !v, do: () => deleteVault(v)},
+        {icon: '🗑', label: 'Delete', title: 'Deleting a vault file is done in S3, not here', disabled: true, do: () => deleteVault(v)},
       ])),
     h('div', {class: 'list-body'}, files.length ? h('table', {},
       h('tr', {}, h('th', {class: 'tick'}, h('input', {type: 'checkbox', title: 'Tick all',
@@ -792,6 +837,7 @@ function renderHome() {
   const info = (k, val) => h('div', {class: 'field'}, h('div', {class: 'k', text: k}), h('div', {class: 'v'}, h('span', {class: 'val', text: val})));
   const recs = h('div', {}, h('button', {class: 'btn sm', onclick: () => showRecords(v, recs)}, 'Show access records'));
   el.replaceChildren(
+    backBtn('list'),
     h('div', {class: 'd-title'}, safe(false), ` ${v.name}.kdbx`),
     h('div', {class: 'd-path', text: `${F.folder ? '📁 ' + F.folder : 'Vaults'} · encrypted (KDBX 4), decrypted only in your browser`}),
     info('S3 location', v.path),
@@ -972,6 +1018,7 @@ function openDb({name, folder = '', db, etag, size = 0}) {
   S.open.add(S.group.uuid.id);
   $('#home').hidden = true; $('#vault').hidden = false; $('#search').hidden = false;
   document.body.classList.add('in-vault');
+  pane('list');
   $('#mode').className = 'mode open'; $('#mode').textContent = `🔓 Inside ${name}.kdbx`;
   $('#signout').hidden = true;   // inside a vault the way out is Lock; Sign out is on the vault-file list only
   $('#search').value = '';
@@ -1080,7 +1127,7 @@ function renderTree(ro) {
     const kids = g.groups.filter(x => x !== bin).concat(depth === 0 && bin ? [bin] : []);   // the bin last, like KeePassXC
     const open = S.open.has(g.uuid.id);
     const row = h('div', {class: 'node' + (g === S.group && !S.search ? ' sel' : ''), style: `padding-left:${8 + depth * 14}px`,
-        onclick: () => { S.group = g; S.entry = null; S.ticked.clear(); S.search = ''; $('#search').value = ''; S.open.add(g.uuid.id); renderVault(); },
+        onclick: () => { S.group = g; S.entry = null; S.ticked.clear(); S.search = ''; $('#search').value = ''; S.open.add(g.uuid.id); renderVault(); pane('list'); },
         ondblclick: () => { if (!ro && g !== bin && depth > 0) groupDialog(g); }},
       h('span', {class: 'caret', onclick: e => { e.stopPropagation(); open ? S.open.delete(g.uuid.id) : S.open.add(g.uuid.id); renderVault(); }},
         kids.length ? (open ? '▾' : '▸') : ''),
@@ -1101,7 +1148,7 @@ function renderTree(ro) {
     s3node('🗃', 'Vaults', 0, false, 'Lock the vault to browse the folders'),
     S.folder ? s3node('📁', S.folder, 1, false, 'Lock the vault to browse the folders') : null,
     s3node(safe(true), `${S.name}.kdbx`, S.folder ? 2 : 1, true, `s3://…/${s3Path(S.name, S.folder)} · unlocked in this browser`)].filter(Boolean);
-  $('#tree').replaceChildren(...s3,
+  $('#tree').replaceChildren(backBtn('list'), ...s3,
     h('div', {class: 'pane-title', style: 'margin-top:10px;border-top:1px solid var(--line);padding-top:10px'}, 'Groups · inside this file', h('span', {class: 'spacer'}),
       h('button', {class: 'icon-btn', title: 'Rename the group', disabled: ro || atRoot || S.group === bin, onclick: () => groupDialog(S.group)}, '✎'),
       h('button', {class: 'icon-btn', title: 'Delete the group', disabled: ro || atRoot, onclick: () => deleteGroup(S.group)}, '🗑')),
@@ -1114,7 +1161,7 @@ function renderList(ro) {
   for (const e of [...S.ticked]) if (!list.includes(e)) S.ticked.delete(e);
   const inBin = Vault.inRecycleBin(S.db, S.group);
   const head = h('div', {class: 'list-head'},
-    h('div', {class: 'list-title'},
+    h('div', {class: 'list-title'}, navBtn('☰ Groups', 'tree'),
       h('span', {class: 'title', text: searching ? `Search: ${S.search}` : groupPath(S.group).slice(1).join(' / ') || S.group.name}),
       h('span', {class: 'muted'}, `${list.length} ${list.length === 1 ? 'entry' : 'entries'}`)),
     actionRow([
@@ -1140,7 +1187,7 @@ function renderList(ro) {
   const rows = list.map(e => {
     const f = Vault.fields(e);
     let host = f.url; try { host = new URL(f.url).host || f.url; } catch (x) {}
-    return h('tr', {class: 'row' + (e === S.entry ? ' sel' : ''), onclick: () => { S.entry = e; renderVault(); },
+    return h('tr', {class: 'row' + (e === S.entry ? ' sel' : ''), onclick: () => { S.entry = e; renderVault(); pane('detail'); },
         ondblclick: () => { if (!ro) entryDialog(e); }},
       h('td', {class: 'tick'}, h('input', {type: 'checkbox', checked: S.ticked.has(e), disabled: ro,
         onclick: ev => ev.stopPropagation(), onchange: ev => { ev.target.checked ? S.ticked.add(e) : S.ticked.delete(e); renderVault(); }})),
@@ -1177,6 +1224,7 @@ function renderDetail(ro) {
     h('button', {class: 'icon-btn', title: 'Copy', onclick: () => copy(value, label)}, '⧉')));
   const t = e.times, forever = Vault.deleteIsFinal(S.db, e);
   el.replaceChildren(...[
+    backBtn('list'),
     h('div', {class: 'd-title', text: f.title || '(no title)'}),
     h('div', {class: 'd-path', text: groupPath(e.parentGroup).join(' / ')}),
     plain('User name', f.username),
@@ -1319,7 +1367,7 @@ function copyField(which) {
   copy(which === 'password' ? f.password : f.username, which === 'password' ? 'Password' : 'User name');
 }
 
-$('#search').addEventListener('input', e => { if (S) { S.search = e.target.value; renderVault(); } });
+$('#search').addEventListener('input', e => { if (S) { S.search = e.target.value; renderVault(); pane('list'); } });
 
 // keyboard, as in KeePassXC: ⌘F search, ⌘B copy user, ⌘C copy password, ⌘L lock, ↑/↓ move, Enter edit, Del delete
 document.addEventListener('keydown', e => {

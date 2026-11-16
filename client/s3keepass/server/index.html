@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>s3keepass</title>
+<link rel="icon" id="favicon" href="data:,">
 <style>
 :root {
   --bg: #f3f4f6; --panel: #ffffff; --panel2: #f9fafb; --line: #e5e7eb; --line2: #d1d5db;
@@ -37,8 +38,25 @@ a { color: var(--accent); }
 .bar { display: flex; align-items: center; gap: 10px; padding: 8px 14px; background: var(--bar); color: var(--bar-text);
   flex-wrap: wrap; min-height: 52px; }
 .brand { font-weight: 700; font-size: 15px; display: flex; align-items: center; gap: 8px; cursor: pointer; }
-.brand .logo { width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, #3b82f6, #8b5cf6);
-  display: grid; place-items: center; font-size: 14px; }
+.brand .logo { width: 30px; height: 30px; }
+/* the safe: locked (still) › unlocking (the wheel turns) › unlocked (a green ✓ stays); the tab's icon follows */
+/* three stacked layers — the safe, its wheel, the ✓ — so the moving ones are plain HTML transforms the GPU runs on its
+   own: the wheel keeps turning while Argon2 holds the page's main thread */
+.kp-logo { position: relative; display: inline-block; border-radius: 7px; background: #2b2d31; }
+.kp-logo > * { position: absolute; inset: 4%; }
+.kp-logo svg { display: block; width: 100%; height: 100%; }
+.kp-wheel { transform-origin: 49% 47%; will-change: transform; }
+.kp-check { transform-origin: 74% 74%; transform: scale(0); opacity: 0; will-change: transform, opacity;
+  transition: transform .35s cubic-bezier(.3, 1.6, .5, 1), opacity .2s; }
+.kp-logo[data-state=unlocking] .kp-wheel { animation: kp-rock 1.2s ease-in-out infinite; }
+.kp-logo[data-state=open] .kp-check { transform: scale(1); opacity: 1; }
+@keyframes kp-rock { 0%, 100% { transform: rotate(-70deg); } 50% { transform: rotate(80deg); } }
+.kp-logo.shake { animation: kp-shake .35s ease-in-out; }
+@keyframes kp-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+.kp-fly { position: fixed; z-index: 1000; pointer-events: none; border-radius: 16px; will-change: transform, opacity; }
+@media (prefers-reduced-motion: reduce) { .kp-wheel, .kp-logo.shake { animation: none !important; } .kp-check { transition: none; } }
+.unlock-art { display: flex; justify-content: center; margin: 2px 0 12px; }
+.unlock-art .kp-logo { width: 72px; height: 72px; border-radius: 16px; }
 /* where you are: the file list (neutral bar) or inside an unlocked vault file (amber bar + badge) */
 .mode { font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
 .mode.files { background: rgba(255,255,255,.12); color: var(--bar-text); }
@@ -260,7 +278,7 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 </head>
 <body>
 <header class="bar">
-  <div class="brand" id="brand" title="All vaults"><span class="logo">🔐</span>s3keepass</div>
+  <div class="brand" id="brand" title="All vaults"><span class="logo kp-logo" data-state="locked"></span>s3keepass</div>
   <span class="mode" id="mode"></span>
   <nav class="crumbs" id="crumbs"></nav>
   <div class="sep"></div>
@@ -465,6 +483,45 @@ const SAFE_SVG = {
     '<line x1="4" y1="11.3" x2="16.5" y2="11.3" stroke="#9ca3af" stroke-width="1.2"/>' +
     '<path d="M16.5 4 L22.6 2.2 L22.6 21.6 L16.5 19.4 Z" fill="#d1d5db" stroke="#4b5563"/></svg>',
 };
+// the app's icon (top bar, unlock dialog, browser tab): a safe; its wheel turns while unlocking, a green ✓ shows the
+// vault is open in this tab. check: 'anim' (shown by the state, animated), true (shown), false (none)
+const KP_O = '#1c1c1e';
+const KP_BODY = `<rect x="12" y="12" width="70" height="70" rx="9" fill="#a1a1aa" stroke="${KP_O}" stroke-width="5"/>
+  <rect x="22" y="22" width="50" height="50" rx="5" fill="#d4d4d8" stroke="${KP_O}" stroke-width="5"/>
+  <rect x="17" y="30" width="7" height="8" rx="1.5" fill="#f4f4f5" stroke="${KP_O}" stroke-width="3.5"/>
+  <rect x="17" y="56" width="7" height="8" rx="1.5" fill="#f4f4f5" stroke="${KP_O}" stroke-width="3.5"/>`;
+const KP_WHEEL = `<circle cx="49" cy="47" r="13" fill="#e4e4e7" stroke="${KP_O}" stroke-width="5"/>
+  <circle cx="49" cy="47" r="5.8" fill="none" stroke="${KP_O}" stroke-width="3.6"/>
+  ${[45, 135, 225, 315].map(a => `<line x1="49" y1="41.2" x2="49" y2="34" stroke="${KP_O}" stroke-width="3.6" transform="rotate(${a} 49 47)"/>`).join('')}`;
+const KP_CHECK = `<circle cx="74" cy="74" r="15" fill="#22c55e" stroke="${KP_O}" stroke-width="5"/>
+  <path d="M67 74 l5 5 l9 -10" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>`;
+const kpSvgOf = inner => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">${inner}</svg>`;
+// the browser tab's icon: one still picture, the ✓ when the vault is open
+const kpFavicon = open => kpSvgOf('<rect width="100" height="100" rx="22" fill="#2b2d31"/>' + KP_BODY + KP_WHEEL + (open ? KP_CHECK : ''));
+const KP_LAYERS = kpSvgOf(KP_BODY) + `<div class="kp-wheel">${kpSvgOf(KP_WHEEL)}</div><div class="kp-check">${kpSvgOf(KP_CHECK)}</div>`;
+const kpIcon = () => { const el = h('span', {class: 'kp-logo', 'data-state': 'locked'}); el.innerHTML = KP_LAYERS; return el; };
+function setLogo(state) {   // locked | unlocking | open
+  for (const el of document.querySelectorAll('.kp-logo')) el.dataset.state = state;
+  $('#favicon').href = 'data:image/svg+xml,' + encodeURIComponent(kpFavicon(state === 'open'));
+}
+$('#brand .logo').innerHTML = KP_LAYERS;
+setLogo('locked');
+// unlocked: the dialog's safe (at rect, its ✓ showing) shrinks into the top-bar logo, then the logo shows the ✓.
+// then() — rendering the vault — waits two frames, so the flight is already running on the GPU when the page gets busy
+function flyToLogo(rect, then) {
+  const logo = $('#brand .logo'), to = logo.getBoundingClientRect();
+  if (!rect || !rect.width || matchMedia('(prefers-reduced-motion: reduce)').matches) { then(); setLogo('open'); return; }
+  const fly = kpIcon();
+  fly.classList.add('kp-fly');
+  fly.dataset.state = 'open';
+  Object.assign(fly.style, {left: rect.left + 'px', top: rect.top + 'px', width: rect.width + 'px', height: rect.height + 'px'});
+  document.body.append(fly);
+  const dx = to.left + to.width / 2 - (rect.left + rect.width / 2), dy = to.top + to.height / 2 - (rect.top + rect.height / 2);
+  fly.animate([{transform: 'translate(0, 0) scale(1)', opacity: 1}, {transform: `translate(${dx}px, ${dy}px) scale(${to.width / rect.width})`, opacity: .9}],
+    {duration: 450, easing: 'cubic-bezier(.4, 0, .2, 1)'}).finished.finally(() => { fly.remove(); setLogo('open'); });
+  requestAnimationFrame(() => requestAnimationFrame(then));
+}
+
 // a vault's icon: closed safe = a vault file; open safe = the vault unlocked in this tab
 function safe(open) { const el = document.createElement('span'); el.className = 'safe'; el.innerHTML = SAFE_SVG[open ? 'open' : 'closed']; return el; }
 
@@ -791,6 +848,7 @@ const navBtn = (label, to) => h('button', {class: 'btn m-only m-nav', onclick: (
 let F = {folder: '', file: null, ticked: new Set(), folders: [], closed: new Set()};   // the file page: selected folder, file, ticked file names, folded folders
 
 async function showHome() {
+  setLogo('locked');
   $('#vault').hidden = true; $('#home').hidden = false; $('#search').hidden = true;
   if (document.body.dataset.pane !== 'detail' || !F.file) pane('list');
   document.body.classList.remove('in-vault');
@@ -830,7 +888,7 @@ function renderHome() {
     }
     items.push(...root.files.map(x => fileNode(root, x, 1)));
   }
-  $('#ftree').replaceChildren(backBtn('list', 'Folders'), h('div', {class: 'pane-title'}, 'Folders'), ...items);
+  $('#ftree').replaceChildren(backBtn('list', 'Library'), h('div', {class: 'pane-title'}, 'Library'), ...items);
   // middle: the vault files in the folder
   const unlockMark = u => !u ? '' : `${u.ok ? '✓' : '✗'} ${when(u.at)}`;
   for (const n of [...F.ticked]) if (!files.some(x => x.name === n)) F.ticked.delete(n);
@@ -849,7 +907,7 @@ function renderHome() {
     h('td', {}), h('td', {}), h('td', {})));
   $('#flist').replaceChildren(
     h('div', {class: 'list-head'},
-      h('div', {class: 'list-title'}, navBtn('☰ Folders', 'tree'), h('span', {class: 'title', text: F.folder ? `📁 ${F.folder}` : 'Vaults'}),
+      h('div', {class: 'list-title'}, navBtn('☰ Library', 'tree'), h('span', {class: 'title', text: F.folder ? `📁 ${F.folder}` : 'Vaults'}),
         h('span', {class: 'muted'}, `${files.length} vault ${files.length === 1 ? 'file' : 'files'}`)),
       actionRow([
         // highlighted: what comes next — nothing selected: create / add a file; a file selected: Open it
@@ -1081,20 +1139,30 @@ async function unlock(v) {
   let file;
   try { file = await call('GET', vaultPath(v.name, v.folder), {raw: true}); } catch (e) { return toast(e.message, true); }
   let db;
+  const art = kpIcon();
+  let artRect = null;
   const r = await ask(`Unlock ${v.name}`, [
+    {el: h('div', {class: 'unlock-art'}, art)},
     {name: 'pw', label: 'Master password', type: 'password', autocomplete: 'current-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: 'Only if this vault uses one. Read in this browser, never uploaded.'}],
     {ok: 'Unlock', busy: 'Unlocking (Argon2) …', done: 'Unlocked', note: `${size(file.bytes.byteLength)} · decrypted in this browser only`,
      validate: async x => {
        if (!x.pw && !x.key) return 'Enter the master password (or choose the key file)';
+       art.dataset.state = 'unlocking';
+       // let the turning wheel reach the screen (and the GPU) before Argon2 holds the main thread
+       await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
        try { db = await Vault.open(file.bytes.slice(0), x.pw, x.key); }
        catch (e) {
+         art.dataset.state = 'locked';
+         art.classList.remove('shake'); void art.offsetWidth; art.classList.add('shake');
          if (e.code === 'InvalidKey') { reportUnlock(v, false); return 'Wrong master password or key file'; }
          return `Cannot open: ${e.message}`;
        }
+       art.dataset.state = 'open';
+       artRect = art.getBoundingClientRect();
        reportUnlock(v, true);
      }});
-  if (r && db) openDb({name: v.name, folder: v.folder || '', db, etag: file.etag, size: file.bytes.byteLength});
+  if (r && db) flyToLogo(artRect, () => openDb({name: v.name, folder: v.folder || '', db, etag: file.etag, size: file.bytes.byteLength}));
 }
 
 function openDb({name, folder = '', db, etag, size = 0}) {
@@ -1123,6 +1191,7 @@ async function lock() {
   }
   S = null;
   if (clipToken) { clipToken++; clearClipboard(); }
+  pane('list');   // leaving a vault goes one level up, to its folder's files (the file stays selected), wherever it was left
   showHome();
 }
 $('#brand').addEventListener('click', () => S ? lock() : showHome());
@@ -1230,7 +1299,7 @@ function renderTree(ro) {
     h('span', {class: 'caret'}), h('span', {}, icon), h('span', {class: 'name', text: label}),
     // the open file is marked, not a second Close next to Lock: leaving is Lock (top bar) or a folder above
     sel ? h('span', {class: 'opened', title: 'Unlocked in this browser; Lock (top bar) closes it'}, 'Opened') : null);
-  const s3 = [h('div', {class: 'pane-title'}, 'Folders'),
+  const s3 = [h('div', {class: 'pane-title'}, 'Library'),
     s3node('🗃', 'Vaults', 0, false, 'Lock the vault to browse the folders'),
     S.folder ? s3node('📁', S.folder, 1, false, 'Lock the vault to browse the folders') : null,
     s3node(safe(true), `${S.name}.kdbx`, S.folder ? 2 : 1, true, `s3://…/${s3Path(S.name, S.folder)} · unlocked in this browser`)].filter(Boolean);

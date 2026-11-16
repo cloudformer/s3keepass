@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.8
+
+UI only:
+- **A new icon**: a safe (top bar, browser tab). Unlocking shows it large in the dialog — its wheel turns while
+  Argon2 runs, a green ✓ appears when the vault opens, then it shrinks into the top-bar logo, which keeps the ✓
+  while the vault is open (the tab's icon too). A wrong master password shakes it once. The moving parts are their
+  own layers, so the wheel keeps turning while Argon2 holds the page. Skipped under "reduce motion".
+- **Library**: the S3 side's tree is called Library (inside a vault: Groups).
+- **Lock** (by hand or after 5 idle minutes) always goes back to the vault's folder, the file still selected.
+
 ## 0.1.7
 
 UI only, phones (a computer is unchanged): an unlocked vault opens on its groups (its top level often has no entries

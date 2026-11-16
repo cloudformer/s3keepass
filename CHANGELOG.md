@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.6
+
+UI only:
+- **Vault files**: at the top level the folders are listed first in the file list (a click opens one), so the list
+  is never empty when the vaults live in folders. A selected file's panel puts 🔓 Open first; Versions and Move
+  to… sit below its details.
+- **Rename folder** (a folder selected, no file): each vault file in it moves to the new name — S3 has no folder
+  rename, so one by one through the same move as Move to… (copy, then delete; never over an existing file). If it
+  stops half way nothing is lost: rename again to move the rest.
+- **Groups**: no 🗑 shortcut next to the group tree (a destructive action is no shortcut). With no entry selected,
+  Edit / Move / Delete act on the group shown (Rename group, Move group, Delete group); the details pane shows the
+  group (entries, subgroups, Rename, Move, Delete). **Move group** takes it with all its entries and subgroups under
+  another group, saved in one write (never into itself or below itself, not into the recycle bin). The vault's top
+  level is neither renamed, moved nor deleted. Checked against KeePassXC (tests/compat).
+- **Phones**: each pane's head (‹ Back and what it shows) and the list's head stay at the top while it scrolls.
+
 ## 0.1.5
 
 UI only: inside an open vault the next step is highlighted too — nothing selected: New entry, New group; an

@@ -105,6 +105,19 @@ def test_entries_moved_in_s3keepass(kx, ours, box):
     assert next(e for e in home["entries"] if e["title"] == "github")["password"] == "gh-xyz"
 
 
+def test_group_moved_in_s3keepass(kx, ours, box):
+    """Data | move a whole group under another group in s3keepass | KeePassXC finds it there with its entries, gone from where it was"""
+    f, out = box.box("库1.kdbx"), box.box("out.kdbx")
+    ours.create(f, PW, TREE)
+    ours.edit(f, PW, [["moveGroup", "工作", "库2 (家)"]], out)
+    theirs = kx.tree(out, PW)
+    assert ours.tree(out, PW) == theirs
+    assert all(g["name"] != "工作" for g in theirs["groups"])
+    home = next(g for g in theirs["groups"] if g["name"] == "库2 (家)")
+    work = next(g for g in home["groups"] if g["name"] == "工作")
+    assert next(e for e in work["entries"] if e["title"] == "github")["password"] == "gh-xyz"
+
+
 def test_clean_up_clears_history_and_the_recycle_bin(kx, ours, box):
     """Data | Clean up in s3keepass: every entry's history and the recycle bin emptied | KeePassXC finds no history, an empty bin, the rest unchanged"""
     f, out = box.box("库1.kdbx"), box.box("out.kdbx")

@@ -234,8 +234,12 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
   .list-actions { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
   .list-actions .btn.sm { padding: 8px 12px; font-size: 14px; flex: none; }
   .m-nav { padding: 8px 12px; font-size: 15px; }
-  #detail, #fdetail, #tree, #ftree { padding: 12px 16px 24px; }
-  .back { margin-bottom: 14px; }
+  #detail, #fdetail, #tree, #ftree { padding: 0 16px 24px; }
+  /* the pane's head (‹ Back + what it shows) and the list's head stay at the top while the pane scrolls */
+  .m-head.m-only { display: flex !important; align-items: center; gap: 10px; position: sticky; top: 0; z-index: 3;
+    margin: 0 -16px 12px; padding: 8px 16px; background: inherit; border-bottom: 1px solid var(--line); }
+  .m-title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .list-head { position: sticky; top: 0; z-index: 3; background: var(--panel); }
   .field .val { font-size: 16px; }
   .field .icon-btn { min-width: 44px; min-height: 44px; font-size: 20px; }
   .d-actions .btn { flex: 1; justify-content: center; padding: 12px; font-size: 16px; }
@@ -419,8 +423,14 @@ const Vault = (() => {
   // delete = move to the recycle bin, as KeePassXC does; from inside the bin it is permanent
   function remove(db, item) { if (deleteIsFinal(db, item)) db.move(item, null); else db.remove(item); }
   function moveEntries(db, entries, group) { for (const e of entries) if (e.parentGroup !== group) db.move(e, group); }
+  // a group with everything in it under another group: never the top level, never into itself or below itself
+  function moveGroup(db, group, to) {
+    if (group === db.getDefaultGroup()) throw new Error('The top level does not move');
+    for (let g = to; g; g = g.parentGroup) if (g === group) throw new Error('A group cannot move into itself');
+    if (group.parentGroup !== to) db.move(group, to);
+  }
   return {create, open, save, setMasterKey, isMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin,
-          inRecycleBin, remove, moveEntries, templateFields, deleteIsFinal, clearHistory, templateDiff, followTemplate};
+          inRecycleBin, remove, moveEntries, moveGroup, templateFields, deleteIsFinal, clearHistory, templateDiff, followTemplate};
 })();
 </script>
 <script>
@@ -754,7 +764,9 @@ function crumbs(...parts) {
 // phone: which pane is on screen (tree | list | detail); a computer shows all three and ignores it
 const pane = p => { document.body.dataset.pane = p; };
 pane('list');
-const backBtn = to => h('button', {class: 'btn m-only back', onclick: () => pane(to)}, '‹ Back');
+// the head of a phone pane: ‹ Back and what the pane shows; it stays at the top while the pane scrolls
+const backBtn = (to, title = '') => h('div', {class: 'm-only m-head'},
+  h('button', {class: 'btn back', onclick: () => pane(to)}, '‹ Back'), h('span', {class: 'm-title', text: title}));
 const navBtn = (label, to) => h('button', {class: 'btn m-only m-nav', onclick: () => pane(to)}, label);
 
 let F = {folder: '', file: null, ticked: new Set(), folders: [], closed: new Set()};   // the file page: selected folder, file, ticked file names, folded folders
@@ -799,7 +811,7 @@ function renderHome() {
     }
     items.push(...root.files.map(x => fileNode(root, x, 1)));
   }
-  $('#ftree').replaceChildren(backBtn('list'), h('div', {class: 'pane-title'}, 'Folders'), ...items);
+  $('#ftree').replaceChildren(backBtn('list', 'Folders'), h('div', {class: 'pane-title'}, 'Folders'), ...items);
   // middle: the vault files in the folder
   const unlockMark = u => !u ? '' : `${u.ok ? '✓' : '✗'} ${when(u.at)}`;
   for (const n of [...F.ticked]) if (!files.some(x => x.name === n)) F.ticked.delete(n);
@@ -810,6 +822,12 @@ function renderHome() {
     h('td', {class: 't'}, safe(false), ' ', `${x.name}.kdbx`), h('td', {class: 'muted'}, x.owner || '—'),
     h('td', {class: 'muted'}, size(x.size)), h('td', {class: 'muted'}, when(x.modified)),
     h('td', {class: 'muted'}, unlockMark(x.last_unlock))));
+  // at the top level the folders are rows too (first, like a file explorer): the vaults usually live in them
+  const subFolders = F.folder ? [] : subs;
+  const folderRows = subFolders.map(f => h('tr', {class: 'row folder', onclick: () => { pick(f); F.file = null; renderHome(); pane('list'); }},
+    h('td', {class: 'tick'}), h('td', {class: 't'}, '📁 ', f.name),
+    h('td', {class: 'muted'}, `${f.files.length} vault ${f.files.length === 1 ? 'file' : 'files'}`),
+    h('td', {}), h('td', {}), h('td', {})));
   $('#flist').replaceChildren(
     h('div', {class: 'list-head'},
       h('div', {class: 'list-title'}, navBtn('☰ Folders', 'tree'), h('span', {class: 'title', text: F.folder ? `📁 ${F.folder}` : 'Vaults'}),
@@ -819,31 +837,45 @@ function renderHome() {
         {icon: '＋', label: 'New vault', title: 'New vault in this folder', primary: !v, do: newVault},
         {icon: '📁', label: 'New folder', title: 'A folder for sorting vaults; it stays once a vault is saved in it', primary: !v, do: newFolder},
         {icon: '⤒', label: 'Upload .kdbx', title: 'Add an existing KeePass file to this folder', primary: !v, do: () => $('#file').click()},
+        ...(F.folder && !v ? [{icon: '✎', label: 'Rename folder', title: 'Give this folder another name (each vault file in it moves)', do: renameFolder}] : []),
         {icon: '🔓', label: 'Open', title: 'Unlock the vault (double-click)', primary: !!v, disabled: !v, do: () => unlock(v)},
         {icon: '🕘', label: 'Versions', disabled: !v, do: () => versionsDialog(v)},
         {icon: '⇢', label: 'Move to…', title: 'Move the ticked vault files (or the selected one) to another folder',
          disabled: !movableFiles().length, do: moveFilesDialog},
         {icon: '🗑', label: 'Delete', title: 'Deleting a vault file is done in S3, not here', disabled: true, do: () => deleteVault(v)},
       ])),
-    h('div', {class: 'list-body'}, files.length ? h('table', {},
+    h('div', {class: 'list-body'}, files.length || subFolders.length ? h('table', {},
       h('tr', {}, h('th', {class: 'tick'}, h('input', {type: 'checkbox', title: 'Tick all',
           checked: files.length > 0 && files.every(x => F.ticked.has(x.name)),
           onchange: ev => { for (const x of files) ev.target.checked ? F.ticked.add(x.name) : F.ticked.delete(x.name); renderHome(); }})),
-        h('th', {}, 'File'), h('th', {}, 'Owner'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {}, 'Last unlock')), rows)
+        h('th', {}, 'File'), h('th', {}, 'Owner'), h('th', {}, 'Size'), h('th', {}, 'Modified'), h('th', {}, 'Last unlock')), folderRows, rows)
       : h('div', {class: 'empty'}, 'No vault files in this folder yet.')));
   // right: the selected file
   const el = $('#fdetail');
+  // no file selected: inside a folder, the folder's panel (rename); at the top level, nothing to show
+  if (!v && F.folder) {
+    el.replaceChildren(backBtn('list', F.folder),
+      h('div', {class: 'd-title'}, `📁 ${F.folder}`),
+      h('div', {class: 'd-path', text: `A folder in S3: keepass/${F.folder}/`}),
+      h('div', {class: 'field'}, h('div', {class: 'k', text: 'Vault files'}), h('div', {class: 'v'}, h('span', {class: 'val', text: String(files.length)}))),
+      h('div', {class: 'd-actions'}, h('button', {class: 'btn', onclick: renameFolder}, '✎ Rename folder')));
+    return;
+  }
   if (!v) { el.replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, safe(false)), 'Select a vault file')); return; }
   const info = (k, val) => h('div', {class: 'field'}, h('div', {class: 'k', text: k}), h('div', {class: 'v'}, h('span', {class: 'val', text: val})));
   const recs = h('div', {}, h('button', {class: 'btn sm', onclick: () => showRecords(v, recs)}, 'Show access records'));
+  // Open first: it is what a selected file is for; the rest reads below it
   el.replaceChildren(
-    backBtn('list'),
+    backBtn('list', `${v.name}.kdbx`),
     h('div', {class: 'd-title'}, safe(false), ` ${v.name}.kdbx`),
     h('div', {class: 'd-path', text: `${F.folder ? '📁 ' + F.folder : 'Vaults'} · encrypted (KDBX 4), decrypted only in your browser`}),
+    h('div', {class: 'd-actions'}, h('button', {class: 'btn primary', onclick: () => unlock(v)}, '🔓 Open')),
     info('S3 location', v.path),
     info('Owner', v.owner || '—'), info('Size', size(v.size)), info('Modified', when(v.modified)),
     info('Last unlock', v.last_unlock ? `${v.last_unlock.ok ? 'succeeded' : 'failed'} · ${v.last_unlock.who} · ${when(v.last_unlock.at)}` : '—'),
-    h('div', {class: 'd-actions'}, h('button', {class: 'btn primary', onclick: () => unlock(v)}, '🔓 Open')),
+    h('div', {class: 'd-actions'},
+      h('button', {class: 'btn', onclick: () => versionsDialog(v)}, '🕘 Versions'),
+      h('button', {class: 'btn', onclick: moveFilesDialog}, '⇢ Move to…')),
     h('div', {class: 'field'}, h('div', {class: 'k', text: 'Access records'}), recs));
 }
 
@@ -863,6 +895,39 @@ async function newFolder() {
   F.folders.push({name, path: `keepass/${name}/`, files: []});
   F.folder = name; F.file = null; vaults = [];
   renderHome();
+}
+
+// S3 has no folder rename: each vault file in the folder moves (copied, then the original deleted), one by one. If it
+// stops half way nothing is lost: renaming again to the same name moves the rest into the folder that now exists.
+async function renameFolder() {
+  const from = F.folder, files = F.folders.find(f => f.name === from).files.slice(), failed = [];
+  let to = '';
+  const r = await ask(`Rename folder ${from}`, [{name: 'name', label: 'New name', value: from, required: true,
+      hint: 'Letters, digits, @ . + - _ — e.g. shared, frank, team-ops'}],
+    {ok: 'Rename', busy: 'Moving …',
+     note: `S3 has no folder rename: each of its ${files.length} vault ${files.length === 1 ? 'file is' : 'files are'} moved — copied, then the ` +
+       'original deleted. If it stops half way nothing is lost: rename again to move the rest. Older versions stay with the original names.',
+     validate: async vals => {
+       to = vals.name.trim();
+       if (!FOLDER_RE.test(to) || to.includes('..')) return 'Folder: letters, digits, @ . + - _, at most 128, not starting with "."';
+       if (to === from) return 'That is its name now';
+       failed.length = 0;
+       for (const x of files) {
+         try { await call('POST', '/api/move', {body: JSON.stringify({path: x.path, etag: x.etag, folder: to}),
+                                                headers: {'content-type': 'application/json'}}); }
+         catch (e) { failed.push(`${x.name}: ${e.message}`); }
+       }
+       if (files.length && failed.length === files.length) return failed.join(' · ');
+     }});
+  if (!r) return;
+  F.ticked.clear(); F.file = null;
+  if (!files.length) {   // a folder only this page knows (nothing saved in it yet): just its name changes
+    F.folders = F.folders.filter(f => f.name !== to);
+    Object.assign(F.folders.find(f => f.name === from), {name: to, path: `keepass/${to}/`});
+    F.folder = to; renderHome(); return;
+  }
+  if (failed.length) toast(`Not moved: ${failed.join(' · ')}`, true); else toast(`Renamed ${from} to ${to}`);
+  F.folder = failed.length ? from : to; await showHome();
 }
 
 // ---- move vault files: the ticked ones, else the selected one, to another folder ----
@@ -1148,10 +1213,10 @@ function renderTree(ro) {
     s3node('🗃', 'Vaults', 0, false, 'Lock the vault to browse the folders'),
     S.folder ? s3node('📁', S.folder, 1, false, 'Lock the vault to browse the folders') : null,
     s3node(safe(true), `${S.name}.kdbx`, S.folder ? 2 : 1, true, `s3://…/${s3Path(S.name, S.folder)} · unlocked in this browser`)].filter(Boolean);
-  $('#tree').replaceChildren(backBtn('list'), ...s3,
+  // no delete here: a destructive action is no shortcut; the selected group's panel (right) has it
+  $('#tree').replaceChildren(backBtn('list', 'Groups'), ...s3,
     h('div', {class: 'pane-title', style: 'margin-top:10px;border-top:1px solid var(--line);padding-top:10px'}, 'Groups · inside this file', h('span', {class: 'spacer'}),
-      h('button', {class: 'icon-btn', title: 'Rename the group', disabled: ro || atRoot || S.group === bin, onclick: () => groupDialog(S.group)}, '✎'),
-      h('button', {class: 'icon-btn', title: 'Delete the group', disabled: ro || atRoot, onclick: () => deleteGroup(S.group)}, '🗑')),
+      h('button', {class: 'icon-btn', title: 'Rename the group', disabled: ro || atRoot || S.group === bin, onclick: () => groupDialog(S.group)}, '✎')),
     h('ul', {}, node(rootGroup, 0)));
 }
 
@@ -1159,18 +1224,25 @@ function renderList(ro) {
   const list = visibleEntries(), searching = !!S.search.trim();
   if (S.entry && !list.includes(S.entry)) S.entry = null;
   for (const e of [...S.ticked]) if (!list.includes(e)) S.ticked.delete(e);
-  const inBin = Vault.inRecycleBin(S.db, S.group);
+  const inBin = Vault.inRecycleBin(S.db, S.group), bin = Vault.recycleBin(S.db), atRoot = S.group === S.db.getDefaultGroup();
   const head = h('div', {class: 'list-head'},
     h('div', {class: 'list-title'}, navBtn('☰ Groups', 'tree'),
       h('span', {class: 'title', text: searching ? `Search: ${S.search}` : groupPath(S.group).slice(1).join(' / ') || S.group.name}),
       h('span', {class: 'muted'}, `${list.length} ${list.length === 1 ? 'entry' : 'entries'}`)),
     actionRow([
-      // highlighted: what comes next — nothing selected: add; an entry selected: Edit it
+      // highlighted: what comes next — nothing selected: add; an entry selected: Edit it.
+      // Edit / Delete act on the selected entry, or with none selected on the group shown (not the vault's top level)
       {icon: '＋', label: 'New entry', title: 'New entry in this group', primary: !S.entry, disabled: ro || inBin, do: () => entryDialog(null)},
       {icon: '＋', label: 'New group', title: 'New group inside this group', primary: !S.entry, disabled: ro || inBin, do: () => groupDialog(null)},
-      {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', primary: !!S.entry, disabled: ro || !S.entry, do: () => entryDialog(S.entry)},
-      {icon: '⇢', label: 'Move to…', title: 'Move the ticked entries (or the selected one) to another group', disabled: ro || !movable().length, do: moveDialog},
-      {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)},
+      S.entry || searching
+        ? {icon: '✎', label: 'Edit', title: 'Edit the entry (Enter)', primary: !!S.entry, disabled: ro || !S.entry, do: () => entryDialog(S.entry)}
+        : {icon: '✎', label: 'Rename group', disabled: ro || atRoot || S.group === bin, do: () => groupDialog(S.group)},
+      movable().length || searching
+        ? {icon: '⇢', label: 'Move to…', title: 'Move the ticked entries (or the selected one) to another group', disabled: ro || !movable().length, do: moveDialog}
+        : {icon: '⇢', label: 'Move group', title: 'Move the group, with everything in it, under another group', disabled: ro || atRoot || S.group === bin, do: () => moveGroupDialog(S.group)},
+      S.entry || searching
+        ? {icon: '🗑', label: 'Delete', title: 'Delete the entry (Del)', disabled: ro || !S.entry, do: () => deleteEntry(S.entry)}
+        : {icon: '🗑', label: 'Delete group', disabled: ro || atRoot, do: () => deleteGroup(S.group)},
       {icon: '🔒', label: `Lock ${S.name}`, cls: 'lock', title: 'Lock (⌘L): forget the decrypted vault in this tab; also after 5 minutes idle', do: lock},
     ]));
   const banner = S.conflict ? h('div', {class: 'banner'},
@@ -1210,7 +1282,7 @@ function renderList(ro) {
 
 function renderDetail(ro) {
   const e = S.entry, el = $('#detail');
-  if (!e) { el.replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, '🔐'), 'Select an entry')); return; }
+  if (!e) { renderGroupDetail(ro); return; }
   const f = Vault.fields(e), dots = v => '•'.repeat(Math.min(16, v.length));
   const secret = (label, value) => {
     const val = h('span', {class: 'val pw', text: dots(value)});
@@ -1225,7 +1297,7 @@ function renderDetail(ro) {
     h('button', {class: 'icon-btn', title: 'Copy', onclick: () => copy(value, label)}, '⧉')));
   const t = e.times, forever = Vault.deleteIsFinal(S.db, e);
   el.replaceChildren(...[
-    backBtn('list'),
+    backBtn('list', f.title || '(no title)'),
     h('div', {class: 'd-title', text: f.title || '(no title)'}),
     h('div', {class: 'd-path', text: groupPath(e.parentGroup).join(' / ')}),
     plain('User name', f.username),
@@ -1242,6 +1314,24 @@ function renderDetail(ro) {
       h('div', {}, `Created ${t.creationTime ? t.creationTime.toLocaleString() : '—'}`),
       e.history.length ? h('div', {}, `History: ${e.history.length} earlier version${e.history.length > 1 ? 's' : ''}`) : null,
       e.binaries.size ? h('div', {}, `Attachments: ${[...e.binaries.keys()].join(', ')} (kept; open them in KeePassXC)`) : null),
+  ].filter(Boolean));
+}
+
+// no entry selected: the selected group's panel — what is in it, and renaming or deleting it (not a tree shortcut)
+function renderGroupDetail(ro) {
+  const g = S.group, el = $('#detail'), bin = Vault.recycleBin(S.db), atRoot = g === S.db.getDefaultGroup();
+  if (S.search.trim()) { el.replaceChildren(h('div', {class: 'empty'}, h('div', {class: 'big'}, '🔐'), 'Select an entry')); return; }
+  const info = (k, val) => h('div', {class: 'field'}, h('div', {class: 'k', text: k}), h('div', {class: 'v'}, h('span', {class: 'val', text: val})));
+  el.replaceChildren(...[
+    backBtn('list', g.name || '(unnamed)'),
+    h('div', {class: 'd-title'}, g === bin ? '🗑 ' : atRoot ? '' : '🗂 ', g.name || '(unnamed)'),
+    h('div', {class: 'd-path', text: atRoot ? 'The vault itself: select an entry, or a group to rename or delete it' : groupPath(g).join(' / ')}),
+    info('Entries', `${g.entries.length} here · ${entryCount(g)} with subgroups`),
+    info('Subgroups', String(g.groups.length)),
+    ro || atRoot ? null : h('div', {class: 'd-actions'},
+      g === bin ? null : h('button', {class: 'btn', onclick: () => groupDialog(g)}, '✎ Rename'),
+      g === bin ? null : h('button', {class: 'btn', onclick: () => moveGroupDialog(g)}, '⇢ Move'),
+      h('button', {class: 'btn', onclick: () => deleteGroup(g)}, Vault.deleteIsFinal(S.db, g) ? 'Delete group forever' : '🗑 Delete group')),
   ].filter(Boolean));
 }
 
@@ -1304,6 +1394,26 @@ async function moveDialog() {
   Vault.moveEntries(S.db, entries, to);
   S.ticked.clear(); S.entry = null;
   toast(`Moved ${what} to ${to.name || 'the root'}`);
+  changed();
+}
+
+// a whole group, with its entries and subgroups, under another group (not into itself or below it, not the recycle bin)
+async function moveGroupDialog(group) {
+  const bin = Vault.recycleBin(S.db), groups = [];
+  const walk = (g, depth) => { if (g === bin || g === group) return; groups.push([g, depth]); for (const k of g.groups) walk(k, depth + 1); };
+  walk(S.db.getDefaultGroup(), 0);
+  const first = groups.findIndex(([g]) => g !== group.parentGroup);
+  if (first < 0) return toast('No other group to move it to', true);
+  const pick = h('select', {style: 'width:100%;padding:6px'}, groups.map(([g, d], i) =>
+    h('option', {value: i, disabled: g === group.parentGroup}, '\u00a0\u00a0'.repeat(d) + (d ? '🗂 ' : '') + (g.name || '(root)'))));
+  pick.value = String(first);
+  const r = await ask(`Move group "${group.name}"`, [{el: h('div', {class: 'f'}, h('label', {}, 'To group'), pick)}],
+    {ok: 'Move', note: `With everything in it: ${entryCount(group)} entries and its subgroups.`});
+  if (!r || !S || S.conflict) return;
+  const to = groups[+pick.value][0];
+  Vault.moveGroup(S.db, group, to);
+  S.open.add(to.uuid.id);
+  toast(`Moved "${group.name}" to ${to.name || 'the top level'}`);
   changed();
 }
 

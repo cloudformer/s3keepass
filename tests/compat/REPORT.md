@@ -1,10 +1,10 @@
 # s3keepass compatibility report · [tasks](TASKS.md)
 
-Generated 2026-11-14 by `pytest tests` · s3keepass 0.1.1 · Python 3.9.6
+Generated 2026-11-16 by `pytest tests` · s3keepass 0.1.6 · Python 3.9.6
 
 Each row is one feature exercised the same way on the reference and on the project; results, types and errors must match. The feature list only grows (a removed case would show in git), so the support percentage can only move up.
 
-Whole test run: **77 passed**, 0 failed, 0 expected failures (known gaps), 0 skipped — regression suite (`tests/`) and compatibility suite (`tests/compat/`) together.
+Whole test run: **100 passed**, 0 failed, 0 expected failures (known gaps), 0 skipped — regression suite (`tests/`) and compatibility suite (`tests/compat/`) together.
 
 Open tasks: none — see [TASKS.md](TASKS.md).
 
@@ -22,7 +22,7 @@ What each business step is checked by. ✅ every listed test passed · 🔴 one 
 
 ## s3keepass vault files vs KeePassXC (lambda_handler in-process) — reference: KeePassXC 2.7.9 (keepassxc-cli, Docker)
 
-**Support 100%** (17 / 17 features) · 17 verified
+**Support 100%** (18 / 18 features) · 18 verified
 
 ✅ verified · ❌ gap — known difference, the note names the task that closes it · ⚪ quirk — documented, deliberately not aligned · ⛔ unsupported by design, refused with NotSupportedError · 🟡 fixed — xfail marker to remove · 🔴 regression · ⏭ not run
 
@@ -40,6 +40,7 @@ What each business step is checked by. ✅ every listed test passed · 🔴 one 
 | change the master key: add a key file in s3keepass, remove it again; add one in KeePassXC | ✅ | each change seen by the other side |
 | change the master password in s3keepass | ✅ | KeePassXC opens the file with the new one only |
 | delete a group in s3keepass | ✅ | KeePassXC finds it, with its entries, in the recycle bin |
+| move a whole group under another group in s3keepass | ✅ | KeePassXC finds it there with its entries, gone from where it was |
 | move entries to another group (several at once) in s3keepass | ✅ | KeePassXC finds them there, nowhere else, unchanged |
 | password + key file: a KeePassXC vault opens in s3keepass | ✅ | the .keyx KeePassXC generates; without it, refused |
 | password + key file: an s3keepass vault opens in KeePassXC | ✅ | the .keyx the UI's "New" button makes; without it, refused |

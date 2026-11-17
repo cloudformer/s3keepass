@@ -60,6 +60,10 @@ terraform -chdir=terraform output                      # console_url、bucket
 
 ## 兼容性
 
+下载的库在本地各个 KeePass 客户端（Windows、Mac、iPhone、Android）能不能用、要什么版本：
+[cloudformer.github.io/s3keepass/compat.html#zh](https://cloudformer.github.io/s3keepass/compat.html#zh)（中 / 英），
+内容来自 [client/README.md](client/README.md)（PyPI 页面）的 "Local KeePass apps" 一节。
+
 [tests/compat/REPORT.md](tests/compat/REPORT.md) 每次跑测试自动生成。参照是 **Docker 里 KeePassXC 的
 `keepassxc-cli`**：s3keepass 写的每个库文件都必须能被 keepassxc-cli 打开且分组、条目一致；keepassxc-cli 写的每个文件
 也必须能在 s3keepass 打开。s3keepass 这一侧跑的是网页自己的加密代码（`index.html` 里的 `vault-core` 块和内置库），

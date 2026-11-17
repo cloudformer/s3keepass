@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "s3keepass"           # repo = pip = import name
-version = "0.1.9"
+version = "0.1.10"
 description = "KeePass vaults (.kdbx) on your own S3, opened in a web UI served by a Lambda Function URL; decrypted only in the browser, ≈ $0 when idle."
 readme = "README.md"
 requires-python = ">=3.9"
@@ -25,6 +25,7 @@ IdleFree = "https://cloudformer.github.io/"
 Repository = "https://github.com/cloudformer/s3keepass"
 Deploy = "https://github.com/cloudformer/s3keepass#quick-start"
 Compatibility = "https://github.com/cloudformer/s3keepass/blob/main/tests/compat/REPORT.md"
+"Local apps" = "https://cloudformer.github.io/s3keepass/compat.html"
 Changelog = "https://github.com/cloudformer/s3keepass/blob/main/CHANGELOG.md"
 Issues = "https://github.com/cloudformer/s3keepass/issues"
 

@@ -171,7 +171,8 @@ tr.row.sel td { background: var(--accent-bg); color: var(--accent-text); }
 .status { display: flex; align-items: center; gap: 12px; padding: 4px 14px; font: 12px var(--mono); color: var(--muted);
   background: var(--panel); border-top: 1px solid var(--line); cursor: pointer; min-height: 26px; }
 .status .last { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.status .ver { opacity: .6; white-space: nowrap; }
+.status .ver { color: var(--accent); white-space: nowrap; text-decoration: underline; text-underline-offset: 3px; }
+.status .ver:hover { color: var(--accent-text); }
 .ok { color: var(--ok); } .err { color: var(--err); }
 .history { position: fixed; left: 0; right: 0; bottom: 26px; max-height: 40vh; overflow: auto; background: #111827; color: #d1d5db;
   font: 12px/1.7 var(--mono); padding: 8px 14px; border-top: 1px solid #374151; z-index: 5; }
@@ -305,7 +306,8 @@ dialog .note { color: var(--muted); font-size: 13px; margin-bottom: 4px; }
 </main>
 
 <footer class="status" id="status" title="Click: history of server calls">
-  <span class="last" id="last">ready</span><span id="savestate"></span><span class="ver">s3keepass __VERSION__</span>
+  <span class="last" id="last">ready</span><span id="savestate"></span><a class="ver" href="https://cloudformer.github.io/s3keepass/compat.html"
+    target="_blank" rel="noopener noreferrer" title="Which local KeePass apps open these vaults">s3keepass __VERSION__</a>
 </footer>
 <div class="history" id="history" hidden></div>
 <div class="toast" id="toast"></div>
@@ -608,7 +610,7 @@ function renderHistory() {
   el.replaceChildren(...logLines.map(l => h('div', {class: l.cls || ''}, l.text)));
   el.scrollTop = el.scrollHeight;
 }
-$('#status').addEventListener('click', () => { const el = $('#history'); el.hidden = !el.hidden; if (!el.hidden) renderHistory(); });
+$('#status').addEventListener('click', e => { if (e.target.closest('a')) return; const el = $('#history'); el.hidden = !el.hidden; if (!el.hidden) renderHistory(); });
 
 let toastTimer;
 function toast(text, bad) {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.10
+
+UI and docs only: **which local KeePass apps open these vaults**. The release at the right end of the status bar
+(`s3keepass 0.1.10`) is now a link to [cloudformer.github.io/s3keepass/compat.html](https://cloudformer.github.io/s3keepass/compat.html):
+Windows, Mac, iPhone and Android apps, from which version a downloaded `.kdbx` opens and shows the TOTP code
+(EN / CN). The table itself is written once, in the "Local KeePass apps" section of this package's README on PyPI;
+the page reads it from there, so a change to it is one release of this package.
+
 ## 0.1.9
 
 UI only: **TOTP (two-factor codes)**, in place of an authenticator app. Edit an entry, paste the secret key a site

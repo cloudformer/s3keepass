@@ -8,6 +8,9 @@
 //   node kdbx_node.js edit   <in.kdbx>  <password> <ops.json> <out.kdbx>   apply UI operations, save
 //   node kdbx_node.js info   <in.kdbx>  <password>                 KDBX version, cipher, KDF
 //   node kdbx_node.js keyfile <out.keyx>                           a new key file, as the UI's "New" button makes it
+//   node kdbx_node.js otpuri <secret or uri> <title> <username>    the `otp` attribute the UI stores for that input
+//   node kdbx_node.js code   <otpauth uri> <unix seconds>          its TOTP code at that time
+//   node kdbx_node.js totp   <in.kdbx>  <password> <entry path> <unix seconds>   an entry's TOTP code, as the UI shows it
 //   --key <file> (any command that opens or creates a vault): the key file next to the password
 //   --template <file.json> (create): the new-vault template, as the UI gets it from /api/template
 //
@@ -89,6 +92,8 @@ async function main() {
     fs.writeFileSync(file, Buffer.from(await Vault.newKeyFile()));
     return {ok: true};
   }
+  if (cmd === 'otpuri') return {uri: Vault.otpUri(file, password, arg)};
+  if (cmd === 'code') return await Vault.totp(file, +password * 1000);
   if (cmd === 'create') {
     const db = await Vault.create(path.basename(file, '.kdbx'), password, key, template);
     fill(db, db.getDefaultGroup(), JSON.parse(fs.readFileSync(arg, 'utf8')));
@@ -102,6 +107,10 @@ async function main() {
     throw e;
   }
   if (cmd === 'dump') return dump(db);
+  if (cmd === 'totp') {
+    const otp = Vault.fields(find(db, arg, 'entry')).custom.find(c => c.name === Vault.OTP);
+    return await Vault.totp(otp ? otp.value : '', +out * 1000);
+  }
   if (cmd === 'info') {
     const kdf = db.header.kdfParameters, uuid = kdbxweb.ByteUtils.bytesToBase64(kdf.get('$UUID'));
     const name = Object.keys(kdbxweb.Consts.KdfId).find(k => kdbxweb.Consts.KdfId[k] === uuid);

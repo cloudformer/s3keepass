@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.9
+
+UI only: **TOTP (two-factor codes)**, in place of an authenticator app. Edit an entry, paste the secret key a site
+shows when two-factor is set up (or its `otpauth://totp/…` link) into TOTP; the entry then shows the current code
+and its seconds left, with a copy button (the clipboard clears after 30 s). Kept as KeePassXC keeps it — the
+protected attribute `otp`, an `otpauth://totp/…` URI — so KeePassXC shows the same code (tests/compat). Worked out
+in the browser (WebCrypto), never on the server: SHA-1 / SHA-256 / SHA-512, 6–8 digits, any period.
+
 ## 0.1.8
 
 UI only:

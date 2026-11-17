@@ -1,10 +1,10 @@
 # s3keepass compatibility report · [tasks](TASKS.md)
 
-Generated 2026-11-16 by `pytest tests` · s3keepass 0.1.6 · Python 3.9.6
+Generated 2026-11-16 by `pytest tests` · s3keepass 0.1.9 · Python 3.9.6
 
 Each row is one feature exercised the same way on the reference and on the project; results, types and errors must match. The feature list only grows (a removed case would show in git), so the support percentage can only move up.
 
-Whole test run: **100 passed**, 0 failed, 0 expected failures (known gaps), 0 skipped — regression suite (`tests/`) and compatibility suite (`tests/compat/`) together.
+Whole test run: **102 passed**, 0 failed, 0 expected failures (known gaps), 0 skipped — regression suite (`tests/`) and compatibility suite (`tests/compat/`) together.
 
 Open tasks: none — see [TASKS.md](TASKS.md).
 
@@ -22,7 +22,7 @@ What each business step is checked by. ✅ every listed test passed · 🔴 one 
 
 ## s3keepass vault files vs KeePassXC (lambda_handler in-process) — reference: KeePassXC 2.7.9 (keepassxc-cli, Docker)
 
-**Support 100%** (18 / 18 features) · 18 verified
+**Support 100%** (20 / 20 features) · 20 verified
 
 ✅ verified · ❌ gap — known difference, the note names the task that closes it · ⚪ quirk — documented, deliberately not aligned · ⛔ unsupported by design, refused with NotSupportedError · 🟡 fixed — xfail marker to remove · 🔴 regression · ⏭ not run
 
@@ -30,6 +30,8 @@ What each business step is checked by. ✅ every listed test passed · 🔴 one 
 |---|---|---|
 | **Data** | | |
 | Clean up in s3keepass: every entry's history and the recycle bin emptied | ✅ | KeePassXC finds no history, an empty bin, the rest unchanged |
+| TOTP codes follow RFC 6238 | ✅ | the standard's test vectors: SHA-1, SHA-256, SHA-512, 8 digits |
+| TOTP set in s3keepass (the secret key pasted): KeePassXC shows the same code | ✅ | attribute otp, an otpauth://totp/ URI as KeePassXC writes it |
 | a vault KeePassXC creates opens in s3keepass | ✅ | KeePassXC's defaults (Argon2d, 1 s key derivation) |
 | a vault s3keepass creates opens in KeePassXC with the same groups and entries | ✅ | nested groups, Unicode, multi-line notes, tags, protected attributes |
 | add / edit / delete / rename in s3keepass, read by KeePassXC | ✅ | on a KeePassXC-made file; an edit keeps the previous version in the entry's history; delete = recycle bin |

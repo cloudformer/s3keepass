@@ -8,6 +8,7 @@ is read by both sides (keepassxc-cli export / the web UI's vault code in Node) a
     python3 -m pytest tests -q --docker run    # ... stop if all passed
     python3 -m pytest tests -q --docker down   # ... always stop
 """
+import base64
 import json
 import os
 import time
@@ -116,6 +117,33 @@ def test_group_moved_in_s3keepass(kx, ours, box):
     home = next(g for g in theirs["groups"] if g["name"] == "库2 (家)")
     work = next(g for g in home["groups"] if g["name"] == "工作")
     assert next(e for e in work["entries"] if e["title"] == "github")["password"] == "gh-xyz"
+
+
+def test_totp_codes_follow_rfc_6238(ours):
+    """Data | TOTP codes follow RFC 6238 | the standard's test vectors: SHA-1, SHA-256, SHA-512, 8 digits"""
+    def uri(seed, alg):
+        secret = base64.b32encode(seed.encode()).decode().rstrip("=")
+        return f"otpauth://totp/rfc:6238?secret={secret}&digits=8&algorithm={alg}"
+    seeds = {"SHA1": "12345678901234567890", "SHA256": "12345678901234567890123456789012",
+             "SHA512": "1234567890" * 6 + "1234"}
+    vectors = {59: ("94287082", "46119246", "90693936"), 1111111109: ("07081804", "68084774", "25091201"),
+               20000000000: ("65353130", "77737706", "47863826")}
+    for t, codes in vectors.items():
+        assert tuple(ours.node("code", uri(seeds[a], a), str(t))["code"] for a in seeds) == codes
+
+
+def test_totp_set_in_s3keepass_matches_keepassxc(kx, ours, box):
+    """Data | TOTP set in s3keepass (the secret key pasted): KeePassXC shows the same code | attribute otp, an otpauth://totp/ URI as KeePassXC writes it"""
+    f = box.box("库1.kdbx")
+    uri = ours.node("otpuri", "jbsw y3dp ehpk 3pxp", "aws", "frank")["uri"]
+    assert uri.startswith("otpauth://totp/aws:frank?secret=JBSWY3DPEHPK3PXP&")
+    ours.create(f, PW, {"entries": [{"title": "aws", "username": "frank", "password": "x",
+                                     "custom": [{"name": "otp", "value": uri, "protected": True}]}]})
+    while int(time.time()) % 30 > 24:   # not across a 30 s boundary between the two readings
+        time.sleep(1)
+    t = int(time.time())
+    theirs = kx.cli("show", "-q", "-t", f, "aws", stdin=PW + "\n").strip()
+    assert theirs == ours.node("totp", f, PW, "aws", str(t))["code"]
 
 
 def test_clean_up_clears_history_and_the_recycle_bin(kx, ours, box):

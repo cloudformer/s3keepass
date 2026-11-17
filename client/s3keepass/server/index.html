@@ -457,8 +457,54 @@ const Vault = (() => {
     for (let g = to; g; g = g.parentGroup) if (g === group) throw new Error('A group cannot move into itself');
     if (group.parentGroup !== to) db.move(group, to);
   }
+
+  // TOTP (RFC 6238), kept as KeePassXC keeps it: the entry's protected attribute `otp`, an otpauth://totp/… URI.
+  // The code is worked out here (WebCrypto HMAC), never on the server.
+  const OTP = 'otp', OTP_ALGS = {SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512'};
+  function parseOtp(s) {
+    s = (s || '').trim();
+    let secret = s, q = {};
+    if (/^otpauth:/i.test(s)) {
+      const m = /^otpauth:\/\/totp\/[^?]*(?:\?(.*))?$/i.exec(s);
+      if (!m) throw new Error('Only time-based codes: otpauth://totp/…');
+      for (const kv of (m[1] || '').split('&')) {
+        const i = kv.indexOf('=');
+        if (i > 0) q[kv.slice(0, i).toLowerCase()] = decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' '));
+      }
+      secret = q.secret || '';
+    }
+    secret = secret.replace(/[\s=-]/g, '').toUpperCase();
+    if (!/^[A-Z2-7]+$/.test(secret)) throw new Error('The secret is not Base32 (letters A–Z, digits 2–7)');
+    const digits = +(q.digits || 6), period = +(q.period || 30), algorithm = (q.algorithm || 'SHA1').toUpperCase();
+    if (![6, 7, 8].includes(digits)) throw new Error('digits must be 6, 7 or 8');
+    if (!(Number.isInteger(period) && period > 0)) throw new Error('period must be a whole number of seconds');
+    if (!OTP_ALGS[algorithm]) throw new Error('algorithm must be SHA1, SHA256 or SHA512');
+    return {secret, digits, period, algorithm};
+  }
+  // what is stored: a URI as given, or a bare secret as KeePassXC writes it (otpauth://totp/<title>:<user>?…)
+  function otpUri(s, title, username) {
+    s = (s || '').trim();
+    if (!s) return '';
+    const o = parseOtp(s);
+    if (/^otpauth:/i.test(s)) return s;
+    const label = encodeURIComponent(title || 's3keepass') + ':' + encodeURIComponent(username || 'none');
+    return `otpauth://totp/${label}?secret=${o.secret}&period=${o.period}&digits=${o.digits}&issuer=${encodeURIComponent(title || 's3keepass')}`;
+  }
+  // the code at `now` (ms) and the seconds it has left
+  async function totp(uri, now = Date.now()) {
+    const o = parseOtp(uri);
+    const bits = [...o.secret].map(c => 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'.indexOf(c).toString(2).padStart(5, '0')).join('');
+    const key = new Uint8Array(Math.floor(bits.length / 8)).map((_, i) => parseInt(bits.slice(i * 8, i * 8 + 8), 2));
+    const t = Math.floor(now / 1000), counter = Math.floor(t / o.period), msg = new Uint8Array(8);
+    for (let i = 7, c = counter; i >= 0; i--, c = Math.floor(c / 256)) msg[i] = c % 256;
+    const k = await crypto.subtle.importKey('raw', key, {name: 'HMAC', hash: OTP_ALGS[o.algorithm]}, false, ['sign']);
+    const mac = new Uint8Array(await crypto.subtle.sign('HMAC', k, msg)), at = mac[mac.length - 1] & 15;
+    const n = ((mac[at] & 127) << 24 | mac[at + 1] << 16 | mac[at + 2] << 8 | mac[at + 3]) % 10 ** o.digits;
+    return {code: String(n).padStart(o.digits, '0'), remaining: o.period - t % o.period};
+  }
   return {create, open, save, setMasterKey, isMasterKey, newKeyFile, fields, addEntry, editEntry, addGroup, renameGroup, recycleBin,
-          inRecycleBin, remove, moveEntries, moveGroup, templateFields, deleteIsFinal, clearHistory, templateDiff, followTemplate};
+          inRecycleBin, remove, moveEntries, moveGroup, templateFields, deleteIsFinal, clearHistory, templateDiff, followTemplate,
+          OTP, parseOtp, otpUri, totp};
 })();
 </script>
 <script>
@@ -1370,7 +1416,21 @@ function renderList(ro) {
   $('#list').replaceChildren(...[head, banner, ...notices, h('div', {class: 'list-body'}, body)].filter(Boolean));
 }
 
+// the entry's TOTP code of the moment and its seconds left; ticks while the entry is on screen
+let otpTimer;
+function otpField(uri) {
+  const code = h('span', {class: 'val mono'}), left = h('span', {class: 'muted'});
+  const tick = async () => {
+    try { const t = await Vault.totp(uri); code.textContent = t.code.replace(/^(\d{3})(\d+)$/, '$1 $2'); left.textContent = ` · ${t.remaining}s`; }
+    catch (x) { clearInterval(otpTimer); code.textContent = x.message; }
+  };
+  tick(); otpTimer = setInterval(() => code.isConnected ? tick() : clearInterval(otpTimer), 1000);
+  return h('div', {class: 'field'}, h('div', {class: 'k', text: 'TOTP'}), h('div', {class: 'v'}, code, left,
+    h('button', {class: 'icon-btn', title: 'Copy', onclick: async () => copy((await Vault.totp(uri)).code, 'TOTP code')}, '⧉')));
+}
+
 function renderDetail(ro) {
+  clearInterval(otpTimer);
   const e = S.entry, el = $('#detail');
   if (!e) { renderGroupDetail(ro); return; }
   const f = Vault.fields(e), dots = v => '•'.repeat(Math.min(16, v.length));
@@ -1385,16 +1445,17 @@ function renderDetail(ro) {
     link && /^https?:\/\//i.test(value) ? h('a', {class: 'val', href: value, target: '_blank', rel: 'noopener noreferrer', text: value})
                                         : h('span', {class: 'val', text: value}),
     h('button', {class: 'icon-btn', title: 'Copy', onclick: () => copy(value, label)}, '⧉')));
-  const t = e.times, forever = Vault.deleteIsFinal(S.db, e);
+  const t = e.times, forever = Vault.deleteIsFinal(S.db, e), otp = f.custom.find(c => c.name === Vault.OTP && c.value);
   el.replaceChildren(...[
     backBtn('list', f.title || '(no title)'),
     h('div', {class: 'd-title', text: f.title || '(no title)'}),
     h('div', {class: 'd-path', text: groupPath(e.parentGroup).join(' / ')}),
     plain('User name', f.username),
     secret('Password', f.password),
+    otp ? otpField(otp.value) : null,
     plain('URL', f.url, true),
     f.notes ? h('div', {class: 'field'}, h('div', {class: 'k'}, 'Notes'), h('pre', {text: f.notes})) : null,
-    ...f.custom.map(c => c.protected ? secret(c.name, c.value) : plain(c.name, c.value)),
+    ...f.custom.filter(c => c.name !== Vault.OTP).map(c => c.protected ? secret(c.name, c.value) : plain(c.name, c.value)),
     f.tags.length ? h('div', {class: 'field'}, h('div', {class: 'k'}, 'Tags'), h('div', {}, f.tags.map(x => h('span', {class: 'tag', text: x})))) : null,
     ro ? null : h('div', {class: 'd-actions'},
       h('button', {class: 'btn primary', onclick: () => entryDialog(e)}, '✎ Edit'),
@@ -1440,21 +1501,25 @@ async function entryDialog(entry) {
       h('button', {type: 'button', class: 'icon-btn', title: 'Remove', onclick: () => { row.remove(); rows.splice(rows.indexOf(r), 1); }}, '✕'));
     rows.push(r); customBox.append(row);
   };
-  f.custom.forEach(addRow);
+  const otp = (f.custom.find(c => c.name === Vault.OTP) || {}).value || '';
+  f.custom.filter(c => c.name !== Vault.OTP).forEach(addRow);
   const customEl = h('div', {class: 'f'}, h('label', {}, 'Additional attributes'), customBox,
     h('button', {type: 'button', class: 'btn sm', style: 'margin-top:6px', onclick: () => addRow({name: '', value: '', protected: false})}, '＋ Attribute'));
   const r = await ask(entry ? 'Edit entry' : 'New entry', [
     {name: 'title', label: 'Title', value: f.title, required: true},
     {name: 'username', label: 'User name', value: f.username},
     {name: 'password', label: 'Password', type: 'password', value: f.password, generate: true, meter: true, autocomplete: 'new-password'},
+    {name: 'otp', label: 'TOTP (two-factor code)', type: 'password', value: otp,
+     hint: 'The otpauth://totp/… link or the secret key (Base32) the site shows when two-factor is set up; empty = none'},
     {name: 'url', label: 'URL', value: f.url},
     {name: 'notes', label: 'Notes', type: 'textarea', value: f.notes},
     {name: 'tags', label: 'Tags', value: f.tags.join(', '), hint: 'comma separated'},
     {el: customEl}],
     {ok: entry ? 'Save' : 'Add', wide: true, note: 'In ' + groupPath(entry ? entry.parentGroup : S.group).join(' / '),
-     validate: () => {
+     validate: v => {
+       if (v.otp.trim()) try { Vault.parseOtp(v.otp); } catch (x) { return 'TOTP: ' + x.message; }
        const names = rows.map(x => x.name.value.trim()).filter(Boolean);
-       if (names.some(n => ['Title', 'UserName', 'Password', 'URL', 'Notes'].includes(n))) return 'An attribute cannot use a standard field name';
+       if (names.some(n => ['Title', 'UserName', 'Password', 'URL', 'Notes', Vault.OTP].includes(n))) return 'An attribute cannot use a standard field name';
        if (new Set(names).size !== names.length) return 'Two attributes have the same name';
        return null;
      }});
@@ -1462,6 +1527,8 @@ async function entryDialog(entry) {
   const values = {title: r.title.trim(), username: r.username, password: r.password, url: r.url.trim(), notes: r.notes,
     tags: r.tags.split(/[,;]/).map(x => x.trim()).filter(Boolean),
     custom: rows.filter(x => x.name.value.trim()).map(x => ({name: x.name.value.trim(), value: x.value.value, protected: x.prot.checked}))};
+  const uri = Vault.otpUri(r.otp, values.title, values.username);
+  if (uri) values.custom.push({name: Vault.OTP, value: uri, protected: true});
   if (entry) Vault.editEntry(entry, values);
   else S.entry = Vault.addEntry(S.db, S.group, values);
   changed();

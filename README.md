@@ -4,7 +4,9 @@
 > in a **web UI** served by a Lambda Function URL. Decryption happens in your browser; the server only ever
 > moves ciphertext. ≈ $0 when idle, and KeePassXC still opens the same file.
 
-[中文](README.zh.md) · [compatibility report](tests/compat/REPORT.md) · [tasks](tests/compat/TASKS.md) · [changelog](CHANGELOG.md)
+[中文](README.zh.md) · [security](SECURITY.md) · [local KeePass apps](https://cloudformer.github.io/s3keepass/compat.html) · [compatibility report](tests/compat/REPORT.md) · [tasks](tests/compat/TASKS.md) · [changelog](CHANGELOG.md)
+
+![the web UI: a demo vault, an entry with its TOTP code](docs/screenshot.png)
 
 ![architecture](docs/architecture.svg)
 
@@ -33,7 +35,7 @@ API over one S3 prefix: list `keepass/*.kdbx`, get a file, save it **only if it 
 (`PUT` with `If-Match: <ETag>`; a new vault with `If-None-Match: *`), list and fetch older versions, delete.
 The browser decrypts and encrypts with **kdbxweb** (KeeWeb's KDBX library) and **argon2-browser** (the Argon2
 reference code as WASM), vendored and pinned in [client/s3keepass/server/vendor/](client/s3keepass/server/vendor/README.md) — no
-hand-written crypto. New vaults are KDBX 4, AES-256, Argon2id 64 MiB × 8. The master key is the password plus an
+hand-written crypto. New vaults are KDBX 4, AES-256, Argon2id 128 MiB × 2 (its passes tuned so one unlock takes about 2 s on the device that creates the vault). The master key is the password plus an
 optional **key file**, as in KeePass: a KeePassXC `.keyx` / `.key`, one the UI generates, or any file — picked in
 the browser for each unlock and never uploaded.
 

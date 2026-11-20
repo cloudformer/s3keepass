@@ -3,7 +3,9 @@
 > 自己掌握的密码管理器：每个库就是一个标准 **KeePass 文件（`.kdbx`）**，放在**你自己的 S3 桶**里，用 Lambda
 > Function URL 提供的**网页**打开。解密只在你的浏览器里发生，服务器只搬运密文。空闲 ≈ $0，KeePassXC 照样能打开同一个文件。
 
-[English](README.md) · [兼容性报告](tests/compat/REPORT.md) · [任务](tests/compat/TASKS.md) · [更新日志](CHANGELOG.md)
+[English](README.md) · [安全](SECURITY.md) · [本地 KeePass 客户端](https://cloudformer.github.io/s3keepass/compat.html#zh) · [兼容性报告](tests/compat/REPORT.md) · [任务](tests/compat/TASKS.md) · [更新日志](CHANGELOG.md)
+
+![网页：一个演示库，条目带 TOTP 验证码](docs/screenshot.png)
 
 ![架构](docs/architecture.svg)
 
@@ -29,7 +31,7 @@
 列出 `keepass/*.kdbx`、取文件、**只有在仍是你打开的那个版本时才保存**（`PUT` 带 `If-Match: <ETag>`；新库用
 `If-None-Match: *`）、列出和取旧版本、删除。浏览器用 **kdbxweb**（KeeWeb 的 KDBX 库）和 **argon2-browser**
 （Argon2 参考实现编成 WASM）加解密，两者都内置并锁定版本，见 [client/s3keepass/server/vendor/](client/s3keepass/server/vendor/README.md)——
-没有手写的加密代码。新库是 KDBX 4、AES-256、Argon2id 64 MiB × 8。主密钥和 KeePass 一样是主密码加可选的**密钥文件**：
+没有手写的加密代码。新库是 KDBX 4、AES-256、Argon2id 128 MiB × 2（轮数在建库的设备上调到解锁一次约 2 秒）。主密钥和 KeePass 一样是主密码加可选的**密钥文件**：
 KeePassXC 的 `.keyx` / `.key`、网页生成的，或任意文件——每次解锁在浏览器里选，从不上传。
 
 桶是私有的、只允许 TLS、开了版本（每个库保留最新 `keep_versions` 个旧版本），静态加密用 SSE-KMS（AWS 托管的

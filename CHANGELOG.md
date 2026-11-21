@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.11
+
+UI only: **Open responds at once, and opens once.** The unlock dialog shows as soon as Open is clicked; the
+encrypted file downloads meanwhile (the note reads "Loading the vault file …" until it is in), so typing the
+password hides the wait. Unlock pressed before the download finished waits for it; a failed download is reported
+in the dialog. A second click or double-click while a vault is opening is ignored, so one vault never opens twice.
+
 ## 0.1.10
 
 UI and docs only: **which local KeePass apps open these vaults**. The release at the right end of the status bar

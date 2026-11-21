@@ -691,7 +691,7 @@ function ask(title, fields, opts = {}) {
     if (opts.ctl) opts.ctl.close = () => finish(null);
     const okBtn = opts.ok === false ? null : h('button', {class: 'btn ' + (opts.danger ? 'danger' : 'primary'), type: 'submit'}, opts.ok || 'OK');
     const form = h('form', {novalidate: true},
-      h('h3', {text: title}), opts.note ? h('p', {class: 'note', text: opts.note}) : null,
+      h('h3', {text: title}), opts.note ? h('p', {class: 'note'}, opts.note) : null,   // text, or an element the caller updates
       fields.map(f => f.el || fieldEl(f, inputs)), err,
       h('div', {class: 'dlg-actions'}, opts.extra ? h('span', {class: 'left'}, opts.extra) : null,
         h('button', {type: 'button', class: 'btn', onclick: () => finish(null)}, opts.cancel || 'Cancel'), okBtn));
@@ -1183,19 +1183,31 @@ function reportUnlock(v, ok) {
   call('POST', '/api/audit/unlock', {body: JSON.stringify({path: s3Path(v.name, v.folder), ok}),
     headers: {'content-type': 'application/json'}}).catch(() => {});
 }
+// The dialog opens at once and the encrypted file downloads meanwhile, so typing the password hides the wait.
+// One unlock at a time: a second click or double-click while one is opening (or any dialog is up) is ignored.
+let unlocking = false;
 async function unlock(v) {
-  let file;
-  try { file = await call('GET', vaultPath(v.name, v.folder), {raw: true}); } catch (e) { return toast(e.message, true); }
-  let db;
+  if (unlocking || dialogOpen()) return;
+  unlocking = true;
+  try { await unlockDialog(v); } finally { unlocking = false; }
+}
+async function unlockDialog(v) {
+  const loading = call('GET', vaultPath(v.name, v.folder), {raw: true});
+  const note = h('span', {text: 'Loading the vault file …'});
+  loading.then(f => { note.textContent = `${size(f.bytes.byteLength)} · decrypted in this browser only`; },
+               e => { note.textContent = `Cannot load the vault file: ${e.message}`; note.className = 'err'; });
+  let file, db;
   const art = kpIcon();
   let artRect = null;
   const r = await ask(`Unlock ${v.name}`, [
     {el: h('div', {class: 'unlock-art'}, art)},
     {name: 'pw', label: 'Master password', type: 'password', autocomplete: 'current-password'},
     {name: 'key', label: 'Key file', type: 'keyfile', hint: 'Only if this vault uses one. Read in this browser, never uploaded.'}],
-    {ok: 'Unlock', busy: 'Unlocking (Argon2) …', done: 'Unlocked', note: `${size(file.bytes.byteLength)} · decrypted in this browser only`,
+    {ok: 'Unlock', busy: 'Unlocking …', done: 'Unlocked', note,
      validate: async x => {
        if (!x.pw && !x.key) return 'Enter the master password (or choose the key file)';
+       try { file = await loading; }     // typed faster than the download: it finishes here
+       catch (e) { return `Cannot load the vault file: ${e.message}`; }
        art.dataset.state = 'unlocking';
        // let the turning wheel reach the screen (and the GPU) before Argon2 holds the main thread
        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));

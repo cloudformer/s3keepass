@@ -1,6 +1,6 @@
 # s3keepass compatibility report · [tasks](TASKS.md)
 
-Generated 2026-11-16 by `pytest tests` · s3keepass 0.1.9 · Python 3.9.6
+Generated 2026-11-20 by `pytest tests` · s3keepass 0.1.11 · Python 3.9.6
 
 Each row is one feature exercised the same way on the reference and on the project; results, types and errors must match. The feature list only grows (a removed case would show in git), so the support percentage can only move up.
 

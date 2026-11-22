@@ -7,6 +7,8 @@
 
 ![网页：一个演示库，条目带 TOTP 验证码](docs/screenshot.png)
 
+![控制台](docs/console.svg)
+
 ![架构](docs/architecture.svg)
 
 ## 换过来是什么样

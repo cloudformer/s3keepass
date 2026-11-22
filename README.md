@@ -8,6 +8,8 @@
 
 ![the web UI: a demo vault, an entry with its TOTP code](docs/screenshot.png)
 
+![the console](docs/console.svg)
+
 ![architecture](docs/architecture.svg)
 
 ## The switch

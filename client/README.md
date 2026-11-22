@@ -4,6 +4,8 @@
 your browser, ≈ $0 when idle, and KeePassXC still opens the same file.** Part of
 [IdleFree](https://cloudformer.github.io/).
 
+![s3keepass console](https://raw.githubusercontent.com/cloudformer/s3keepass/main/docs/console.svg)
+
 ![s3keepass architecture](https://raw.githubusercontent.com/cloudformer/s3keepass/main/docs/architecture.svg)
 
 0.1.0 is the service: deploy it once from the [main repository](https://github.com/cloudformer/s3keepass#quick-start)

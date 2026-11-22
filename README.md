@@ -6,8 +6,6 @@
 
 [中文](README.zh.md) · [security](SECURITY.md) · [local KeePass apps](https://cloudformer.github.io/s3keepass/compat.html) · [compatibility report](tests/compat/REPORT.md) · [tasks](tests/compat/TASKS.md) · [changelog](CHANGELOG.md)
 
-![the web UI: a demo vault, an entry with its TOTP code](docs/screenshot.png)
-
 ![the console](docs/console.svg)
 
 ![architecture](docs/architecture.svg)

@@ -5,8 +5,6 @@
 
 [English](README.md) · [安全](SECURITY.md) · [本地 KeePass 客户端](https://cloudformer.github.io/s3keepass/compat.html#zh) · [兼容性报告](tests/compat/REPORT.md) · [任务](tests/compat/TASKS.md) · [更新日志](CHANGELOG.md)
 
-![网页：一个演示库，条目带 TOTP 验证码](docs/screenshot.png)
-
 ![控制台](docs/console.svg)
 
 ![架构](docs/architecture.svg)

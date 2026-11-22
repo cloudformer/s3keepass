@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.12 — 2026-11-22
+
+- Docs: a console diagram under `docs/` (SVG), embedded in the README and the PyPI page. No code change.
+
 ## 0.1.11
 
 UI only: **Open responds at once, and opens once.** The unlock dialog shows as soon as Open is clicked; the

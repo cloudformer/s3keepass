@@ -2,7 +2,7 @@
 # Verify a vault bucket's current contents match its latest backup snapshot, by ETag (content), not time.
 # Read-only: it only reads ETags, it never changes anything.
 #
-# Usage (AWS creds from your environment / AWS_PROFILE as usual):
+# Default — pass them on the command line (AWS creds from your environment / AWS_PROFILE):
 #   BUCKET=my-vaults bash tools/check-backup.sh
 #   BUCKET=my-vaults BACKUP_BUCKET=my-vaults-backup AWS_PROFILE=prod bash tools/check-backup.sh
 #
@@ -10,11 +10,10 @@
 #   BACKUP_BUCKET   the backup bucket (default: ${BUCKET}-backup)
 set -euo pipefail
 
-# --- option A: hardcode here (uncomment and fill in your own values) ---
+# Or hardcode your values here instead of passing them each time (uncomment and fill in):
 # BUCKET=my-vaults
 # BACKUP_BUCKET=my-vaults-backup
 # export AWS_PROFILE=my-profile
-# --- option B: pass them on the command line (see usage above); leave the block above commented ---
 
 : "${BUCKET:?set BUCKET=<vault bucket name> (or hardcode it above)}"
 BACKUP_BUCKET="${BACKUP_BUCKET:-${BUCKET}-backup}"
@@ -41,10 +40,10 @@ for key, want in objects.items():
     except subprocess.CalledProcessError:
         now = ""
     if now == want:
-        print("OK    " + key)
+        print("✅ no change  " + key)
     else:
-        print("DIFF  " + key + "  (now: " + (now or "missing/deleted") + ")")
+        print("⚠️  changed    " + key + "  (now: " + (now or "missing/deleted") + ")")
         changed += 1
 print()
-print("All match — nothing changed." if changed == 0 else str(changed) + " changed — restore from the snapshot.")
+print("No change — matches the backup." if changed == 0 else str(changed) + " changed — restore from the snapshot.")
 '
